@@ -4,27 +4,47 @@ import Combine
 
 @MainActor
 class ChatViewModel: ObservableObject {
-    // 🔑 REPLACE THIS WITH YOUR REAL API KEY
-    private let apiKey = "YOUR_API_KEY_HERE"
+    // 🔑 Using your provided API key
+    private let apiKey = "REMOVED_API_KEY"
     
-    // API Endpoint for Gemini 1.5 Flash (Fast & Cheap)
-    private let urlString = "https://generativelanguage.googleapis.com/v1beta/models/gemini-1.5-flash:generateContent"
+    // Updated to Gemini 2.5 Flash stable endpoint for 2026
+    private let urlString = "https://generativelanguage.googleapis.com/v1/models/gemini-2.5-flash:generateContent"
     
     @Published var messages: [(role: String, text: String)] = []
     @Published var isLoading = false
     @Published var errorMessage: String?
+    @Published var editingIndex: Int? = nil
+
+    func resetChat() {
+        messages = []
+        errorMessage = nil
+        isLoading = false
+    }
 
     func sendMessage(_ text: String) {
         guard !text.isEmpty else { return }
-        
-        // Add user message to UI
         messages.append((role: "user", text: text))
+        processRequest(prompt: text)
+    }
+
+    func editMessage(at index: Int, newText: String) {
+        guard index < messages.count else { return }
+        messages[index].text = newText
+        
+        // Remove subsequent model response to refresh the conversation
+        if index + 1 < messages.count && messages[index + 1].role == "model" {
+            messages.remove(at: index + 1)
+        }
+        processRequest(prompt: newText)
+    }
+
+    private func processRequest(prompt: String) {
         isLoading = true
         errorMessage = nil
         
         Task {
             do {
-                let responseText = try await sendToGemini(prompt: text)
+                let responseText = try await sendToGemini(prompt: prompt)
                 messages.append((role: "model", text: responseText))
             } catch {
                 errorMessage = "Error: \(error.localizedDescription)"
@@ -33,16 +53,13 @@ class ChatViewModel: ObservableObject {
         }
     }
     
-    // Raw Networking Code (No SDK needed)
     private func sendToGemini(prompt: String) async throws -> String {
         guard let url = URL(string: "\(urlString)?key=\(apiKey)") else {
             throw URLError(.badURL)
         }
         
         let body: [String: Any] = [
-            "contents": [
-                [ "parts": [ ["text": prompt] ] ]
-            ]
+            "contents": [["parts": [["text": prompt]]]]
         ]
         
         var request = URLRequest(url: url)
@@ -51,23 +68,12 @@ class ChatViewModel: ObservableObject {
         request.httpBody = try JSONSerialization.data(withJSONObject: body)
         
         let (data, _) = try await URLSession.shared.data(for: request)
-        
-        // Decode the response
         let decodedResponse = try JSONDecoder().decode(GeminiResponse.self, from: data)
         return decodedResponse.candidates?.first?.content.parts.first?.text ?? "No response."
     }
 }
 
-// Data Structures for JSON Decoding
-struct GeminiResponse: Decodable {
-    let candidates: [Candidate]?
-}
-struct Candidate: Decodable {
-    let content: Content
-}
-struct Content: Decodable {
-    let parts: [Part]
-}
-struct Part: Decodable {
-    let text: String?
-}
+struct GeminiResponse: Decodable { let candidates: [Candidate]? }
+struct Candidate: Decodable { let content: Content }
+struct Content: Decodable { let parts: [Part] }
+struct Part: Decodable { let text: String? }
