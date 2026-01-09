@@ -4,8 +4,15 @@ import Combine
 
 @MainActor
 class ChatViewModel: ObservableObject {
-    // 🔑 Using your provided API key
-    private let apiKey = "REMOVED_API_KEY"
+    // 🔑 Loading API key from Secrets.plist
+    private var apiKey: String {
+        guard let filePath = Bundle.main.path(forResource: "Secrets", ofType: "plist"),
+              let plist = NSDictionary(contentsOfFile: filePath),
+              let value = plist.object(forKey: "GEMINI_API_KEY") as? String else {
+            fatalError("Couldn't find key 'GEMINI_API_KEY' in 'Secrets.plist'.")
+        }
+        return value
+    }
     
     // Updated to Gemini 2.5 Flash stable endpoint for 2026
     private let urlString = "https://generativelanguage.googleapis.com/v1/models/gemini-2.5-flash:generateContent"
