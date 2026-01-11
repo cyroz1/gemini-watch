@@ -29,15 +29,9 @@ struct ContentView: View {
                                             .fill(msg.role == "user" ? Color.blue.opacity(0.3) : Color.gray.opacity(0.2)))
                                         // Smoothly animate text growth and layout changes
                                         .animation(.spring(response: 0.3, dampingFraction: 0.7), value: msg.text)
-                                        .contextMenu {
-                                            if msg.role == "user" {
-                                                Button {
-                                                    inputText = msg.text
-                                                    viewModel.editingIndex = index
-                                                } label: {
-                                                    Label("Edit", systemImage: "pencil")
-                                                }
-                                            }
+                                        .onLongPressGesture {
+                                            inputText = msg.text
+                                            viewModel.editingIndex = index
                                         }
                                 }
                                 

@@ -58,7 +58,7 @@ class ChatViewModel: ObservableObject {
                 for try await chunk in streamToGemini(prompt: prompt) {
                     isLoading = false // Hide loading spinner as soon as first chunk arrives
                     withAnimation(.easeIn) {
-                        messages[messageIndex].text += chunk
+                        messages[messageIndex].text = formatMarkdown(messages[messageIndex].text + chunk)
                     }
                 }
             } catch {
@@ -66,6 +66,56 @@ class ChatViewModel: ObservableObject {
             }
             isLoading = false
         }
+    }
+    
+    private func formatMarkdown(_ text: String) -> String {
+        var formatted = text
+        
+        // 1. Ensure blank line before headings (#)
+        let headingPattern = "(?<!\n\n)\n(#+) "
+        if let regex = try? NSRegularExpression(pattern: headingPattern, options: []) {
+            let range = NSRange(formatted.startIndex..., in: formatted)
+            formatted = regex.stringByReplacingMatches(in: formatted, options: [], range: range, withTemplate: "\n\n$1 ")
+        }
+
+        // 2. Ensure blank line before lists (* or -) - updated to avoid duplicate blank lines
+        let listPattern = "(?<!\n\n)\n([*-]) "
+        if let regex = try? NSRegularExpression(pattern: listPattern, options: []) {
+            let range = NSRange(formatted.startIndex..., in: formatted)
+            formatted = regex.stringByReplacingMatches(in: formatted, options: [], range: range, withTemplate: "\n\n$1 ")
+        }
+        
+        // 3. Basic Math Formatting (SwiftUI Text/Markdown best effort)
+        // Convert LaTeX-style display math \[ ... \] to code blocks for better visibility
+        formatted = formatted.replacingOccurrences(of: "\\[", with: "\n```\n")
+        formatted = formatted.replacingOccurrences(of: " #", with: " #") // Fix spacing after hash if any
+        formatted = formatted.replacingOccurrences(of: "\\]", with: "\n```\n")
+        
+        // Convert inline math \( ... \) to italics code
+        formatted = formatted.replacingOccurrences(of: "\\(", with: "_`")
+        formatted = formatted.replacingOccurrences(of: "\\)", with: "`_")
+        
+        // Simple symbol replacements for common math
+        let symbols = [
+            "^2": "²", "^3": "³", "^n": "ⁿ",
+            "*": "×", "/": "÷", "pi": "π",
+            "sqrt": "√", "sum": "Σ", "infinity": "∞"
+        ]
+        for (key, value) in symbols {
+            // Only replace if it looks like math context (e.g., surrounding space or numbers)
+            // This is a simple heuristic to avoid replacing normal text
+            formatted = formatted.replacingOccurrences(of: " " + key + " ", with: " " + value + " ")
+            formatted = formatted.replacingOccurrences(of: key + " ", with: value + " ")
+        }
+        
+        // 4. Clean up redundant newlines (max 2 consecutive) to save Watch space
+        let newlinePattern = "\n{3,}"
+        if let regex = try? NSRegularExpression(pattern: newlinePattern, options: []) {
+            let range = NSRange(formatted.startIndex..., in: formatted)
+            formatted = regex.stringByReplacingMatches(in: formatted, options: [], range: range, withTemplate: "\n\n")
+        }
+
+        return formatted
     }
     
     private func streamToGemini(prompt: String) -> AsyncThrowingStream<String, Error> {
