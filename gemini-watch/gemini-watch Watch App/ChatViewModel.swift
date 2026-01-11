@@ -4,7 +4,7 @@ import Combine
 
 @MainActor
 class ChatViewModel: ObservableObject {
-    // 🔑 Loading API key from Secrets.plist
+    // Loading API key from Secrets.plist
     private var apiKey: String {
         guard let filePath = Bundle.main.path(forResource: "Secrets", ofType: "plist"),
               let plist = NSDictionary(contentsOfFile: filePath),

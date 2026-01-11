@@ -1,8 +1,8 @@
-# Gemini Watch ⌚️
+# Gemini Watch
 
 Gemini Watch is a native watchOS application that brings the power of Google's Gemini AI directly to your wrist. Specifically optimized for the small screen of the Apple Watch, it provides a fast, streaming chat experience.
 
-## ✨ Features
+## Features
 
 - **Gemini 2.5 Flash Integration**: Built with the latest Gemini 2.5 Flash model for lightning-fast, high-quality responses.
 - **SSE Streaming**: Responses stream in real-time as they are generated, minimizing wait times.
@@ -11,7 +11,7 @@ Gemini Watch is a native watchOS application that brings the power of Google's G
 - **Message Editing**: Long-press any message to edit and refresh the conversation flow.
 - **Auto-Scrolling**: Intelligent scrolling that keeps you focused on the latest part of the AI's response.
 
-## 🚀 Getting Started
+## Getting Started
 
 ### Prerequisites
 
@@ -41,12 +41,12 @@ Gemini Watch is a native watchOS application that brings the power of Google's G
    - Select your Apple Watch or a simulator as the run destination.
    - Press `Cmd + R` to build and run.
 
-## 🛠 Architecture
+## Architecture
 
 - **SwiftUI**: Modern, declarative UI framework for a responsive watch experience.
 - **Combine/Concurrency**: Uses `AsyncThrowingStream` for efficient SSE (Server-Sent Events) handling.
 - **MVVM Pattern**: Clean separation of concerns between `ContentView` and `ChatViewModel`.
 
-## 📜 License
+## License
 
 This project is licensed under the MIT License - see the [LICENSE](file:///Users/amir/Documents/gemini-watch/LICENSE) file for details.
