@@ -15,45 +15,53 @@ struct ContentView: View {
                             HStack {
                                 if msg.role == "user" { Spacer(minLength: 20) }
                                 
-                                // Native Markdown rendering via LocalizedStringKey
-                                if msg.role == "model" && msg.text.isEmpty && viewModel.isLoading {
-                                    ProgressView()
-                                        .padding(8)
-                                        .background(RoundedRectangle(cornerRadius: 12)
-                                            .fill(Color.gray.opacity(0.2)))
-                                } else {
-                                    Text(LocalizedStringKey(msg.text))
-                                        .font(.system(size: 13))
-                                        .padding(8)
-                                        .background(RoundedRectangle(cornerRadius: 12)
-                                            .fill(msg.role == "user" ? Color.blue.opacity(0.3) : Color.gray.opacity(0.2)))
-                                        // Smoothly animate text growth and layout changes
-                                        .animation(.spring(response: 0.3, dampingFraction: 0.7), value: msg.text)
-                                        .onLongPressGesture {
-                                            inputText = msg.text
-                                            viewModel.editingIndex = index
-                                        }
-                                }
+                                Text(LocalizedStringKey(msg.text))
+                                    .font(.system(size: 13))
+                                    .padding(8)
+                                    .background(RoundedRectangle(cornerRadius: 12)
+                                        .fill(msg.role == "user" ? Color.blue.opacity(0.3) : Color.gray.opacity(0.15)))
+                                    .animation(.spring(response: 0.3, dampingFraction: 0.7), value: msg.text)
+                                    .onLongPressGesture {
+                                        inputText = msg.text
+                                        viewModel.editingIndex = index
+                                    }
                                 
                                 if msg.role == "model" { Spacer(minLength: 20) }
                             }
-                            // Minimal margins for Apple Watch
                             .listRowInsets(EdgeInsets(top: 1, leading: 2, bottom: 1, trailing: 2))
                             .listRowBackground(Color.clear)
                             .id(index)
                         }
-                    }
-                    .listStyle(.plain) // Essential to remove the bulky Watch "platters"
-                    .onChange(of: viewModel.messages.count) {
-                        let lastIndex = viewModel.messages.count - 1
-                        guard lastIndex >= 0 else { return }
                         
-                        // Scroll to the top of the new model message immediately
-                        withAnimation(.easeInOut(duration: 0.3)) {
-                            if viewModel.messages[lastIndex].role == "model" {
-                                proxy.scrollTo(lastIndex, anchor: .top)
-                            } else {
-                                proxy.scrollTo(lastIndex, anchor: .bottom)
+                        // Show loader at the end of the list
+                        if viewModel.isLoading {
+                            HStack {
+                                ProgressView()
+                                    .padding(8)
+                                Spacer()
+                            }
+                            .listRowInsets(EdgeInsets(top: 1, leading: 2, bottom: 1, trailing: 2))
+                            .listRowBackground(Color.clear)
+                            .id("loader")
+                        }
+                    }
+                    .listStyle(.plain)
+                    .onChange(of: viewModel.isLoading) {
+                        if viewModel.isLoading {
+                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                                withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                                    proxy.scrollTo("loader", anchor: .bottom)
+                                }
+                            }
+                        }
+                    }
+                    .onChange(of: viewModel.messages.count) {
+                        guard let lastIndex = viewModel.messages.indices.last else { return }
+                        let msg = viewModel.messages[lastIndex]
+                        
+                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                            withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
+                                proxy.scrollTo(lastIndex, anchor: msg.role == "model" ? .top : .bottom)
                             }
                         }
                     }
@@ -71,6 +79,13 @@ struct ContentView: View {
                         }
                         inputText = ""
                     }
+                
+                if let error = viewModel.errorMessage {
+                    Text(error)
+                        .font(.system(size: 10))
+                        .foregroundColor(.red)
+                        .padding(4)
+                }
             }
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
@@ -83,3 +98,4 @@ struct ContentView: View {
         .edgesIgnoringSafeArea(.bottom)
     }
 }
+

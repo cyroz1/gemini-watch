@@ -14,8 +14,8 @@ class ChatViewModel: ObservableObject {
         return value
     }
     
-    // Updated to Gemini 2.5 Flash stable endpoint for 2026
-    private let urlString = "https://generativelanguage.googleapis.com/v1/models/gemini-2.5-flash:streamGenerateContent"
+    // Using v1beta for Structured Output support (required for responseJsonSchema)
+    private let urlString = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:streamGenerateContent"
     
     @Published var messages: [(role: String, text: String)] = []
     @Published var isLoading = false
@@ -50,72 +50,46 @@ class ChatViewModel: ObservableObject {
         errorMessage = nil
         
         Task {
-            // Append an empty model message to fill as the stream arrives
-            messages.append((role: "model", text: ""))
-            let messageIndex = messages.count - 1
+            var fullResponse = ""
+            var messageIndex: Int? = nil
+            var lastUpdate = Date()
             
             do {
                 for try await chunk in streamToGemini(prompt: prompt) {
-                    isLoading = false // Hide loading spinner as soon as first chunk arrives
-                    withAnimation(.easeIn) {
-                        messages[messageIndex].text = formatMarkdown(messages[messageIndex].text + chunk)
+                    fullResponse += chunk
+                    
+                    let now = Date()
+                    // Throttle updates to ~10fps or if it's the first non-empty chunk
+                    if !fullResponse.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                        if messageIndex == nil || now.timeIntervalSince(lastUpdate) > 0.1 {
+                            isLoading = false
+                            if messageIndex == nil {
+                                // Add first model message
+                                messages.append((role: "model", text: fullResponse))
+                                messageIndex = messages.count - 1
+                            } else {
+                                // Update existing model message
+                                messages[messageIndex!].text = fullResponse
+                            }
+                            lastUpdate = now
+                        }
                     }
                 }
+                
+                // Final update after stream finishes
+                if !fullResponse.isEmpty {
+                    if let idx = messageIndex {
+                        messages[idx].text = fullResponse
+                    } else {
+                        messages.append((role: "model", text: fullResponse))
+                    }
+                }
+                isLoading = false
             } catch {
-                errorMessage = "Error: \(error.localizedDescription)"
+                errorMessage = error.localizedDescription
+                isLoading = false
             }
-            isLoading = false
         }
-    }
-    
-    private func formatMarkdown(_ text: String) -> String {
-        var formatted = text
-        
-        // 1. Ensure blank line before headings (#)
-        let headingPattern = "(?<!\n\n)\n(#+) "
-        if let regex = try? NSRegularExpression(pattern: headingPattern, options: []) {
-            let range = NSRange(formatted.startIndex..., in: formatted)
-            formatted = regex.stringByReplacingMatches(in: formatted, options: [], range: range, withTemplate: "\n\n$1 ")
-        }
-
-        // 2. Ensure blank line before lists (* or -) - updated to avoid duplicate blank lines
-        let listPattern = "(?<!\n\n)\n([*-]) "
-        if let regex = try? NSRegularExpression(pattern: listPattern, options: []) {
-            let range = NSRange(formatted.startIndex..., in: formatted)
-            formatted = regex.stringByReplacingMatches(in: formatted, options: [], range: range, withTemplate: "\n\n$1 ")
-        }
-        
-        // 3. Basic Math Formatting (SwiftUI Text/Markdown best effort)
-        // Convert LaTeX-style display math \[ ... \] to code blocks for better visibility
-        formatted = formatted.replacingOccurrences(of: "\\[", with: "\n```\n")
-        formatted = formatted.replacingOccurrences(of: " #", with: " #") // Fix spacing after hash if any
-        formatted = formatted.replacingOccurrences(of: "\\]", with: "\n```\n")
-        
-        // Convert inline math \( ... \) to italics code
-        formatted = formatted.replacingOccurrences(of: "\\(", with: "_`")
-        formatted = formatted.replacingOccurrences(of: "\\)", with: "`_")
-        
-        // Simple symbol replacements for common math
-        let symbols = [
-            "^2": "²", "^3": "³", "^n": "ⁿ",
-            "*": "×", "/": "÷", "pi": "π",
-            "sqrt": "√", "sum": "Σ", "infinity": "∞"
-        ]
-        for (key, value) in symbols {
-            // Only replace if it looks like math context (e.g., surrounding space or numbers)
-            // This is a simple heuristic to avoid replacing normal text
-            formatted = formatted.replacingOccurrences(of: " " + key + " ", with: " " + value + " ")
-            formatted = formatted.replacingOccurrences(of: key + " ", with: value + " ")
-        }
-        
-        // 4. Clean up redundant newlines (max 2 consecutive) to save Watch space
-        let newlinePattern = "\n{3,}"
-        if let regex = try? NSRegularExpression(pattern: newlinePattern, options: []) {
-            let range = NSRange(formatted.startIndex..., in: formatted)
-            formatted = regex.stringByReplacingMatches(in: formatted, options: [], range: range, withTemplate: "\n\n")
-        }
-
-        return formatted
     }
     
     private func streamToGemini(prompt: String) -> AsyncThrowingStream<String, Error> {
@@ -127,7 +101,12 @@ class ChatViewModel: ObservableObject {
                 }
                 
                 let body: [String: Any] = [
-                    "contents": [["parts": [["text": prompt]]]]
+                    "contents": [["parts": [["text": prompt]]]],
+                    "system_instruction": [
+                        "parts": [
+                            ["text": "You are a helpful and conversational AI assistant. Be concise, friendly, and use markdown formatting (bolding, lists) when appropriate to make information easier to read on a small screen."]
+                        ]
+                    ]
                 ]
                 
                 var request = URLRequest(url: url)
@@ -136,7 +115,12 @@ class ChatViewModel: ObservableObject {
                 request.httpBody = try JSONSerialization.data(withJSONObject: body)
                 
                 do {
-                    let (bytes, _) = try await URLSession.shared.bytes(for: request)
+                    let (bytes, response) = try await URLSession.shared.bytes(for: request)
+                    
+                    if let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode != 200 {
+                        continuation.finish(throwing: NSError(domain: "Gemini", code: httpResponse.statusCode, userInfo: [NSLocalizedDescriptionKey: "Server returned error: \(httpResponse.statusCode)"]))
+                        return
+                    }
                     
                     for try await line in bytes.lines {
                         if line.hasPrefix("data: ") {
@@ -158,6 +142,7 @@ class ChatViewModel: ObservableObject {
     }
 }
 
+// Data Structures for JSON Decoding
 struct GeminiResponse: Decodable { let candidates: [Candidate]? }
 struct Candidate: Decodable { let content: Content }
 struct Content: Decodable { let parts: [Part] }
