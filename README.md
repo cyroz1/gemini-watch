@@ -8,6 +8,7 @@ A standalone Apple Watch application that brings the power of Google's Gemini AI
 - **Message History**: Maintains context of the conversation for natural follow-ups.
 - **Message Editing**: Long-press on any user message to edit it and regenerate the response.
 - **Markdown Support**: Renders responses with basic formatting, including code blocks.
+- **LaTeX Support**: Renders math expressions (inline `$` and block `$$`) with distinct styling.
 - **Text-to-Speech**: Tap on Gemini's messages to hear them spoken aloud.
 - **Double Tap Support**: Use the system Double Tap gesture (or tap "Reply") to quickly open the input.
 - **Optimized for SE**: Responsive design using Dynamic Type and haptic feedback for a great experience on smaller screens.
