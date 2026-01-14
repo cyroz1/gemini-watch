@@ -4,23 +4,13 @@ import Combine
 
 @MainActor
 class ChatViewModel: ObservableObject {
-    // Loading API key from Secrets.plist
-    private var apiKey: String {
-        guard let filePath = Bundle.main.path(forResource: "Secrets", ofType: "plist"),
-              let plist = NSDictionary(contentsOfFile: filePath),
-              let value = plist.object(forKey: "GEMINI_API_KEY") as? String else {
-            fatalError("Couldn't find key 'GEMINI_API_KEY' in 'Secrets.plist'.")
-        }
-        return value
-    }
     
-    // Using v1beta for Structured Output support (required for responseJsonSchema)
-    private let urlString = "https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:streamGenerateContent"
-    
-    @Published var messages: [(role: String, text: String)] = []
+    @Published var messages: [Message] = []
     @Published var isLoading = false
     @Published var errorMessage: String?
-    @Published var editingIndex: Int? = nil
+    @Published var editingMessageId: UUID? = nil
+    
+    private let geminiService = GeminiService()
 
     func resetChat() {
         messages = []
@@ -30,22 +20,30 @@ class ChatViewModel: ObservableObject {
 
     func sendMessage(_ text: String) {
         guard !text.isEmpty else { return }
-        messages.append((role: "user", text: text))
-        processRequest(prompt: text)
+        let userMessage = Message(role: .user, text: text)
+        messages.append(userMessage)
+        processRequest()
     }
 
-    func editMessage(at index: Int, newText: String) {
-        guard index < messages.count else { return }
+    func editMessage(id: UUID, newText: String) {
+        guard let index = messages.firstIndex(where: { $0.id == id }) else { return }
         messages[index].text = newText
         
         // Remove subsequent model response to refresh the conversation
-        if index + 1 < messages.count && messages[index + 1].role == "model" {
+        // The previous logic was index + 1, assuming simple alternating. 
+        // We should probably remove everything *after* this message to be safe and replay history,
+        // but sticking to the simple "remove next if model" logic for now to match behavior.
+        if index + 1 < messages.count && messages[index + 1].role == .model {
             messages.remove(at: index + 1)
         }
-        processRequest(prompt: newText)
+        
+        // Also remove any subsequent messages if we want strictly "restart from here" logic?
+        // For a simple edit, let's just re-generate the answer.
+        processRequest()
+        editingMessageId = nil
     }
 
-    private func processRequest(prompt: String) {
+    private func processRequest() {
         isLoading = true
         errorMessage = nil
         
@@ -55,17 +53,20 @@ class ChatViewModel: ObservableObject {
             var lastUpdate = Date()
             
             do {
-                for try await chunk in streamToGemini(prompt: prompt) {
+                // Pass the current history to the service
+                let stream = await geminiService.streamGenerateContent(messages: messages)
+                for try await chunk in stream {
                     fullResponse += chunk
                     
                     let now = Date()
                     // Throttle updates to ~10fps or if it's the first non-empty chunk
                     if !fullResponse.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                         if messageIndex == nil || now.timeIntervalSince(lastUpdate) > 0.1 {
-                            isLoading = false
+                            isLoading = false // Start showing content
                             if messageIndex == nil {
                                 // Add first model message
-                                messages.append((role: "model", text: fullResponse))
+                                let modelMessage = Message(role: .model, text: fullResponse)
+                                messages.append(modelMessage)
                                 messageIndex = messages.count - 1
                             } else {
                                 // Update existing model message
@@ -81,7 +82,7 @@ class ChatViewModel: ObservableObject {
                     if let idx = messageIndex {
                         messages[idx].text = fullResponse
                     } else {
-                        messages.append((role: "model", text: fullResponse))
+                        messages.append(Message(role: .model, text: fullResponse))
                     }
                 }
                 isLoading = false
@@ -91,59 +92,7 @@ class ChatViewModel: ObservableObject {
             }
         }
     }
-    
-    private func streamToGemini(prompt: String) -> AsyncThrowingStream<String, Error> {
-        return AsyncThrowingStream { continuation in
-            Task {
-                guard let url = URL(string: "\(urlString)?key=\(apiKey)&alt=sse") else {
-                    continuation.finish(throwing: URLError(.badURL))
-                    return
-                }
-                
-                let body: [String: Any] = [
-                    "contents": [["parts": [["text": prompt]]]],
-                    "system_instruction": [
-                        "parts": [
-                            ["text": "You are a helpful and conversational AI assistant. Be concise, friendly, and use markdown formatting (bolding, lists) when appropriate to make information easier to read on a small screen."]
-                        ]
-                    ]
-                ]
-                
-                var request = URLRequest(url: url)
-                request.httpMethod = "POST"
-                request.addValue("application/json", forHTTPHeaderField: "Content-Type")
-                request.httpBody = try JSONSerialization.data(withJSONObject: body)
-                
-                do {
-                    let (bytes, response) = try await URLSession.shared.bytes(for: request)
-                    
-                    if let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode != 200 {
-                        continuation.finish(throwing: NSError(domain: "Gemini", code: httpResponse.statusCode, userInfo: [NSLocalizedDescriptionKey: "Server returned error: \(httpResponse.statusCode)"]))
-                        return
-                    }
-                    
-                    for try await line in bytes.lines {
-                        if line.hasPrefix("data: ") {
-                            let jsonString = line.replacingOccurrences(of: "data: ", with: "")
-                            if let data = jsonString.data(using: .utf8) {
-                                let decoded = try JSONDecoder().decode(GeminiResponse.self, from: data)
-                                if let text = decoded.candidates?.first?.content.parts.first?.text {
-                                    continuation.yield(text)
-                                }
-                            }
-                        }
-                    }
-                    continuation.finish()
-                } catch {
-                    continuation.finish(throwing: error)
-                }
-            }
-        }
-    }
 }
 
 // Data Structures for JSON Decoding
-struct GeminiResponse: Decodable { let candidates: [Candidate]? }
-struct Candidate: Decodable { let content: Content }
-struct Content: Decodable { let parts: [Part] }
-struct Part: Decodable { let text: String? }
+
