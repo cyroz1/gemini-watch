@@ -81,6 +81,13 @@ class Speaker: NSObject, ObservableObject, AVSpeechSynthesizerDelegate {
         clean = clean.replacingOccurrences(of: "$", with: "")
         // Remove links [text](url) -> text
         // (Regex would be better but this is a simple pass)
+        
+        // Remove Emojis (prevent reading them as "Sparkles", "Rocket", etc.)
+        clean = clean.unicodeScalars
+            .filter { !$0.properties.isEmojiPresentation }
+            .map(String.init)
+            .joined()
+            
         return clean
     }
 }
