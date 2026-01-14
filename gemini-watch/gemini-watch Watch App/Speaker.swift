@@ -76,6 +76,9 @@ class Speaker: NSObject, ObservableObject, AVSpeechSynthesizerDelegate {
         clean = clean.replacingOccurrences(of: "**", with: "")
         clean = clean.replacingOccurrences(of: "*", with: "")
         clean = clean.replacingOccurrences(of: "`", with: " code ") // Indicate code slightly
+        // Remove LaTeX delimiters
+        clean = clean.replacingOccurrences(of: "$$", with: "")
+        clean = clean.replacingOccurrences(of: "$", with: "")
         // Remove links [text](url) -> text
         // (Regex would be better but this is a simple pass)
         return clean
