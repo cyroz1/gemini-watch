@@ -1,52 +1,40 @@
 # Gemini Watch
 
-Gemini Watch is a native watchOS application that brings the power of Google's Gemini AI directly to your wrist. Specifically optimized for the small screen of the Apple Watch, it provides a fast, streaming chat experience.
+A standalone Apple Watch application that brings the power of Google's Gemini AI to your wrist.
 
 ## Features
 
-- **Gemini 2.5 Flash Integration**: Built with the latest Gemini 2.5 Flash model for lightning-fast, high-quality responses.
-- **SSE Streaming**: Responses stream in real-time as they are generated, minimizing wait times.
-- **Native Watch UI**: Custom-designed interface that avoids bulky "platters" and maximizes screen space for chat history.
-- **Smart Markdown Rendering**: Custom formatting for headings, lists, and mathematical expressions optimized for readability on watchOS.
-- **Message Editing**: Long-press any message to edit and refresh the conversation flow.
-- **Auto-Scrolling**: Intelligent scrolling that keeps you focused on the latest part of the AI's response.
+- **Chat Interface**: Interact with Gemini directly from your Apple Watch.
+- **Message History**: Maintains context of the conversation for natural follow-ups.
+- **Message Editing**: Long-press on any user message to edit it and regenerate the response.
+- **Markdown Support**: Renders responses with basic formatting.
+- **Streaming Responses**: Real-time text generation.
 
-## Getting Started
+## Setup
 
-### Prerequisites
-
-- **Xcode 15.0+**
-- **watchOS 10.0+** (Physical device or Simulator)
-- **Gemini API Key**: Obtain one from the [Google AI Studio](https://aistudio.google.com/).
-
-### Setup Instructions
-
-1. **Clone the Repository**:
+1. **Clone the repository**:
    ```bash
    git clone https://github.com/cyroz1/gemini-watch.git
-   cd gemini-watch
    ```
 
-2. **Configure API Key**:
-   - Navigate to the project folder: `gemini-watch/gemini-watch Watch App/`.
-   - Locate `Secrets.plist.example`.
-   - Duplicate it and rename it to `Secrets.plist`.
-   - Open `Secrets.plist` and replace `YOUR_API_KEY_HERE` with your actual Gemini API key.
+2. **Open in Xcode**:
+   Double-click `gemini-watch.xcodeproj` to open the project.
 
-3. **Open in Xcode**:
-   - Open `gemini-watch.xcodeproj`.
-   - Ensure the `gemini-watch Watch App` target is selected.
+3. **Configure API Key**:
+   - Create a file named `Secrets.plist` in the `gemini-watch Watch App` group.
+   - Add a key `GEMINI_API_KEY` with your Google Gemini API key as the value.
 
 4. **Run**:
-   - Select your Apple Watch or a simulator as the run destination.
-   - Press `Cmd + R` to build and run.
+   Select the "gemini-watch Watch App" target and a Watch Simulator (or connected device) and press Run (Cmd+R).
+
+## Requirements
+
+- Xcode 15+
+- watchOS 10+
+- A Google Cloud Project with the Gemini API enabled.
 
 ## Architecture
 
-- **SwiftUI**: Modern, declarative UI framework for a responsive watch experience.
-- **Combine/Concurrency**: Uses `AsyncThrowingStream` for efficient SSE (Server-Sent Events) handling.
-- **MVVM Pattern**: Clean separation of concerns between `ContentView` and `ChatViewModel`.
-
-## License
-
-This project is licensed under the MIT License - see the [LICENSE](file:///Users/amir/Documents/gemini-watch/LICENSE) file for details.
+- **`ChatViewModel`**: Manages the state of the chat connection.
+- **`GeminiService`**: Handles networking and streaming connection to the Gemini API.
+- **`Models`**: Contains the `Message` data structure for type-safe chat history.
