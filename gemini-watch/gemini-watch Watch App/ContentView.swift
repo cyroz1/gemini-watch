@@ -16,11 +16,7 @@ struct ContentView: View {
                                 HStack {
                                     if msg.role == .user { Spacer(minLength: 20) }
                                     
-                                    Text(LocalizedStringKey(msg.text))
-                                        .font(.caption) // Dynamic Type
-                                        .padding(8)
-                                        .background(RoundedRectangle(cornerRadius: 12)
-                                            .fill(msg.role == .user ? Color.blue.opacity(0.3) : Color.gray.opacity(0.15)))
+                                    MessageView(message: msg)
                                         .animation(.spring(response: 0.3, dampingFraction: 0.7), value: msg.text)
                                         .onLongPressGesture {
                                             WKInterfaceDevice.current().play(.click)
@@ -88,25 +84,19 @@ struct ContentView: View {
                     }
                 
                 if let error = viewModel.errorMessage {
-                    Text(error)
-                        .font(.caption2)
-                        .foregroundColor(.red)
-                        .padding(4)
+                    ScrollView {
+                        Text(error)
+                            .font(.caption2)
+                            .foregroundColor(.red)
+                            .padding(4)
+                    }
+                    .frame(maxHeight: 60)
                 }
             }
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button(action: { viewModel.resetChat() }) {
                         Image(systemName: "plus.circle.fill")
-                    }
-                }
-                
-                // Primary action for double-tap gesture
-                ToolbarItem(placement: .primaryAction) {
-                    Button {
-                        isInputFocused = true
-                    } label: {
-                        Label("Reply", systemImage: "message.fill")
                     }
                 }
             }
