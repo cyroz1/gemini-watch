@@ -71,6 +71,7 @@ struct ContentView: View {
                 TextField(viewModel.editingMessageId == nil ? "Ask Gemini..." : "Editing...", text: $inputText)
                     .font(.body) // Dynamic Type
                     .focused($isInputFocused)
+                    .handGestureShortcut(.primaryAction)
                     .padding(.horizontal, 4)
                     .onSubmit {
                         if let id = viewModel.editingMessageId {
