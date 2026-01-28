@@ -40,7 +40,7 @@ actor GeminiService {
                     
                     if let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode != 200 {
                         // Attempt to read the error body
-                        var errorText = "Server returned error: \(httpResponse.statusCode)"
+                        let errorText = "Server returned error: \(httpResponse.statusCode)"
                         // We can't easily read the stream body here without consuming it as data, 
                         // but bytes.lines might give us a hint if we iterate.
                         // For now, simpler error is safer.
@@ -77,7 +77,7 @@ actor GeminiService {
 
 // MARK: - API Models
 
-private struct GeminiRequest: Codable {
+private struct GeminiRequest: Codable, Sendable {
     let contents: [Content]
     let system_instruction: Content?
 }
@@ -85,19 +85,19 @@ private struct GeminiRequest: Codable {
 // Reuse Content/Part but make them conform to Codable for both Request and Response
 // Since we used slightly different structures in the original file, let's standardize here.
 
-private struct GeminiResponse: Decodable {
+private struct GeminiResponse: Decodable, Sendable {
     let candidates: [Candidate]?
 }
 
-private struct Candidate: Decodable {
+private struct Candidate: Decodable, Sendable {
     let content: Content
 }
 
-private struct Content: Codable {
+private struct Content: Codable, Sendable {
     var role: String?
     let parts: [Part]
 }
 
-private struct Part: Codable {
+private struct Part: Codable, Sendable {
     let text: String?
 }

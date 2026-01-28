@@ -7,18 +7,30 @@ struct MessageView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 4) {
             // MARK: - Markdown Content
-            // We parse content hierarchically: Code -> Block Math -> Inline Math
-            let parts = parseMarkdown(message.text)
+            // We parse content hierarchically using the robust parser
+            let parts = MarkdownParser.shared.parse(message.text)
             
-            ForEach(parts) { part in
+            // Use enumerated() to provide stable identity based on position
+            // This prevents full view recreation when text appends
+            ForEach(Array(parts.enumerated()), id: \.offset) { _, part in
                 switch part.type {
-                case .code:
-                    Text(part.text)
-                        .font(.system(.caption2, design: .monospaced))
-                        .padding(6)
-                        .background(Color.black.opacity(0.5))
-                        .cornerRadius(6)
-                        .frame(maxWidth: .infinity, alignment: .leading)
+                case .code(let language):
+                    VStack(alignment: .leading, spacing: 0) {
+                        if let language = language, !language.isEmpty {
+                            Text(language.uppercased())
+                                .font(.system(size: 8, weight: .bold, design: .monospaced))
+                                .foregroundStyle(.secondary)
+                                .padding(.bottom, 2)
+                        }
+                        
+                        Text(part.text)
+                            .font(.system(.caption2, design: .monospaced))
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                    }
+                    .padding(6)
+                    .background(Color.black.opacity(0.5))
+                    .cornerRadius(6)
+                    
                 case .blockMath:
                     Text(part.text)
                         .font(.system(.caption2, design: .serif))
@@ -27,6 +39,7 @@ struct MessageView: View {
                         .frame(maxWidth: .infinity, alignment: .center)
                         .background(Color.white.opacity(0.1))
                         .cornerRadius(4)
+                        
                 case .inlineMath:
                     Text(part.text)
                         .font(.system(.caption, design: .serif))
@@ -34,7 +47,9 @@ struct MessageView: View {
                         .padding(.horizontal, 2)
                         .background(Color.white.opacity(0.05))
                         .cornerRadius(2)
+                        
                 case .text:
+                    // Using LocalizedStringKey allows SwiftUI to parse standard markdown (bold/italic) in text
                     Text(LocalizedStringKey(part.text))
                         .font(.caption)
                 }
@@ -54,6 +69,7 @@ struct MessageView: View {
             }
         }
         .padding(8)
+        .frame(maxWidth: message.role == .model ? .infinity : nil, alignment: .leading) // Ensure model messages fill width
         .background(RoundedRectangle(cornerRadius: 12)
             .fill(message.role == .user ? Color.blue.opacity(0.3) : Color.gray.opacity(0.15)))
         // Tap to Speak logic
@@ -63,79 +79,5 @@ struct MessageView: View {
             }
         }
         .animation(.default, value: speaker.currentMessageId)
-    }
-    
-    // MARK: - Markdown Parser
-    
-    enum PartType {
-        case text
-        case code
-        case blockMath
-        case inlineMath
-    }
-    
-    struct ContentPart: Identifiable {
-        let id = UUID()
-        let text: String
-        let type: PartType
-    }
-    
-    func parseMarkdown(_ text: String) -> [ContentPart] {
-        var results: [ContentPart] = []
-        
-        // 1. Split by Code Blocks (```)
-        let codeComponents = text.components(separatedBy: "```")
-        
-        for (index, component) in codeComponents.enumerated() {
-            if component.isEmpty { continue }
-            
-            let isCode = index % 2 != 0
-            
-            if isCode {
-                results.append(ContentPart(text: component.trimmingCharacters(in: .newlines), type: .code))
-            } else {
-                // 2. Process non-code text for Block Math ($$)
-                results.append(contentsOf: parseBlockMath(component))
-            }
-        }
-        
-        return results
-    }
-    
-    private func parseBlockMath(_ text: String) -> [ContentPart] {
-        var results: [ContentPart] = []
-        let components = text.components(separatedBy: "$$")
-        
-        for (index, component) in components.enumerated() {
-            if component.isEmpty { continue }
-            
-            let isBlockMath = index % 2 != 0
-            
-            if isBlockMath {
-                results.append(ContentPart(text: component.trimmingCharacters(in: .whitespacesAndNewlines), type: .blockMath))
-            } else {
-                // 3. Process remaining text for Inline Math ($)
-                results.append(contentsOf: parseInlineMath(component))
-            }
-        }
-        return results
-    }
-    
-    private func parseInlineMath(_ text: String) -> [ContentPart] {
-        var results: [ContentPart] = []
-        let components = text.components(separatedBy: "$")
-        
-        for (index, component) in components.enumerated() {
-            if component.isEmpty { continue }
-            
-            let isInlineMath = index % 2 != 0
-            
-            if isInlineMath {
-                results.append(ContentPart(text: component.trimmingCharacters(in: .whitespacesAndNewlines), type: .inlineMath))
-            } else {
-                results.append(ContentPart(text: component.trimmingCharacters(in: .newlines), type: .text))
-            }
-        }
-        return results
     }
 }

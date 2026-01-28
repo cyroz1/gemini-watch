@@ -7,7 +7,7 @@ struct ContentView: View {
     
     var body: some View {
         NavigationStack {
-            VStack(spacing: 0) {
+ZStack(alignment: .bottom) {
                 ScrollViewReader { proxy in
                     ScrollView {
                         LazyVStack(spacing: 8) {
@@ -17,7 +17,6 @@ struct ContentView: View {
                                     if msg.role == .user { Spacer(minLength: 20) }
                                     
                                     MessageView(message: msg)
-                                        .animation(.spring(response: 0.3, dampingFraction: 0.7), value: msg.text)
                                         .onLongPressGesture {
                                             WKInterfaceDevice.current().play(.click)
                                             inputText = msg.text
@@ -25,7 +24,8 @@ struct ContentView: View {
                                             isInputFocused = true
                                         }
                                     
-                                    if msg.role == .model { Spacer(minLength: 20) }
+                                    // Model messages take full width
+                                    // if msg.role == .model { Spacer(minLength: 20) }
                                 }
                                 .padding(.horizontal, 4)
                                 .id(msg.id) // Use UUID for ID
@@ -42,15 +42,8 @@ struct ContentView: View {
                             }
                         }
                         .padding(.vertical)
-                    }
-                    .onChange(of: viewModel.isLoading) {
-                        if viewModel.isLoading {
-                            DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                                withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
-                                    proxy.scrollTo("loader", anchor: .bottom)
-                                }
-                            }
-                        }
+                        // Add bottom padding so content isn't hidden behind the input bar
+                        .padding(.bottom, 60)
                     }
                     .onChange(of: viewModel.messages.count) {
                         guard let lastMsg = viewModel.messages.last else { return }
@@ -68,21 +61,28 @@ struct ContentView: View {
                     }
                 }
 
-                TextField(viewModel.editingMessageId == nil ? "Ask Gemini..." : "Editing...", text: $inputText)
-                    .font(.body) // Dynamic Type
-                    .focused($isInputFocused)
-                    .handGestureShortcut(.primaryAction)
-                    .padding(.horizontal, 4)
-                    .onSubmit {
-                        if let id = viewModel.editingMessageId {
-                            viewModel.editMessage(id: id, newText: inputText)
-                            viewModel.editingMessageId = nil
-                        } else {
-                            viewModel.sendMessage(inputText)
+                // Floating Input Bar
+                HStack {
+                    TextField(viewModel.editingMessageId == nil ? "Ask Gemini..." : "Editing...", text: $inputText)
+                        .font(.caption2) // Smaller font
+                        .frame(height: 35) // Smaller fixed height
+                        .focused($isInputFocused)
+                        .handGestureShortcut(.primaryAction)
+                        .onSubmit {
+                            if let id = viewModel.editingMessageId {
+                                viewModel.editMessage(id: id, newText: inputText)
+                                viewModel.editingMessageId = nil
+                            } else {
+                                viewModel.sendMessage(inputText)
+                            }
+                            WKInterfaceDevice.current().play(.click)
+                            inputText = ""
                         }
-                        WKInterfaceDevice.current().play(.click)
-                        inputText = ""
-                    }
+                }
+                .padding(.horizontal, 8)
+                .padding(.vertical, 8)
+                .background(.ultraThinMaterial)
+                .ignoresSafeArea(edges: .bottom) // Extend blur to bottom edge
                 
                 if let error = viewModel.errorMessage {
                     ScrollView {
