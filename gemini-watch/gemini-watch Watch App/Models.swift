@@ -53,9 +53,4 @@ struct AppSettings: Codable, Equatable {
         hapticsEnabled: true,
         suggestionsEnabled: true
     )
-    
-    static let availableModels = [
-        "gemini-2.5-flash",
-        "gemini-2.5-pro"
-    ]
 }

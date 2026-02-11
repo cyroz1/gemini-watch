@@ -3,24 +3,42 @@ import SwiftUI
 struct SettingsView: View {
     @State private var settings: AppSettings = PersistenceManager.shared.loadSettings()
     @State private var showClearConfirm = false
+    @State private var availableModels: [String] = []
+    @State private var isLoadingModels = true
+    @State private var modelError: String?
     
     var onClearAll: () -> Void
     
     private let persistence = PersistenceManager.shared
+    private let geminiService = GeminiService()
     
     var body: some View {
         NavigationStack {
             List {
                 // Model Selection
                 Section {
-                    Picker("Model", selection: $settings.modelName) {
-                        ForEach(AppSettings.availableModels, id: \.self) { model in
-                            Text(model.replacingOccurrences(of: "gemini-", with: ""))
+                    if isLoadingModels {
+                        HStack(spacing: 6) {
+                            ProgressView()
+                                .scaleEffect(0.7)
+                            Text("Loading models…")
                                 .font(.caption2)
-                                .tag(model)
+                                .foregroundStyle(.secondary)
                         }
+                    } else if let error = modelError {
+                        Text(error)
+                            .font(.caption2)
+                            .foregroundStyle(.red)
+                    } else {
+                        Picker("Model", selection: $settings.modelName) {
+                            ForEach(availableModels, id: \.self) { model in
+                                Text(model.replacingOccurrences(of: "gemini-", with: ""))
+                                    .font(.caption2)
+                                    .tag(model)
+                            }
+                        }
+                        .font(.caption2)
                     }
-                    .font(.caption2)
                 } header: {
                     Text("AI Model")
                         .font(.system(size: 9))
@@ -79,6 +97,9 @@ struct SettingsView: View {
                 }
                 Button("Cancel", role: .cancel) {}
             }
+            .task {
+                await fetchModels()
+            }
         }
     }
     
@@ -87,6 +108,26 @@ struct SettingsView: View {
         case ..<0.4: return "Slow"
         case 0.4..<0.6: return "Normal"
         default: return "Fast"
+        }
+    }
+    
+    private func fetchModels() async {
+        do {
+            let models = try await geminiService.listModels()
+            availableModels = models
+            
+            // If current selection isn't in the list, keep it anyway
+            if !models.contains(settings.modelName) && !models.isEmpty {
+                // Don't force-change — the user's saved model might still work
+                availableModels.insert(settings.modelName, at: 0)
+            }
+            
+            isLoadingModels = false
+        } catch {
+            modelError = "Couldn't load models"
+            // Fall back to current saved model so picker still works
+            availableModels = [settings.modelName]
+            isLoadingModels = false
         }
     }
 }

@@ -86,6 +86,34 @@ actor GeminiService {
             }
         }
     }
+    
+    // MARK: - List Available Models
+    
+    func listModels() async throws -> [String] {
+        let urlString = "https://generativelanguage.googleapis.com/v1beta/models?key=\(apiKey)"
+        guard let url = URL(string: urlString) else {
+            throw URLError(.badURL)
+        }
+        
+        var request = URLRequest(url: url)
+        request.timeoutInterval = 10
+        
+        let (data, response) = try await URLSession.shared.data(for: request)
+        
+        if let httpResponse = response as? HTTPURLResponse, httpResponse.statusCode != 200 {
+            throw NSError(domain: "Gemini", code: httpResponse.statusCode, userInfo: [NSLocalizedDescriptionKey: "Failed to fetch models"])
+        }
+        
+        let decoded = try JSONDecoder().decode(ModelsListResponse.self, from: data)
+        
+        // Filter to models that support generateContent and extract clean names
+        return decoded.models
+            .filter { model in
+                model.supportedGenerationMethods?.contains("generateContent") == true
+            }
+            .map { $0.name.replacingOccurrences(of: "models/", with: "") }
+            .sorted()
+    }
 }
 
 // MARK: - API Models
@@ -110,4 +138,15 @@ private struct Content: Codable, Sendable {
 
 private struct Part: Codable, Sendable {
     let text: String?
+}
+
+// MARK: - Models List API
+
+struct ModelsListResponse: Decodable {
+    let models: [ModelInfo]
+}
+
+struct ModelInfo: Decodable {
+    let name: String
+    let supportedGenerationMethods: [String]?
 }
