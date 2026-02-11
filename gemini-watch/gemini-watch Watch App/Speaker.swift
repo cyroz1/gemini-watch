@@ -1,6 +1,7 @@
 import Foundation
 import AVFoundation
 import Combine
+import WatchKit
 
 @MainActor
 class Speaker: NSObject, ObservableObject, AVSpeechSynthesizerDelegate {
@@ -14,7 +15,6 @@ class Speaker: NSObject, ObservableObject, AVSpeechSynthesizerDelegate {
         super.init()
         synthesizer.delegate = self
         
-        // Configure audio session for playback even in silent mode context
         do {
             try AVAudioSession.sharedInstance().setCategory(.playback, mode: .voicePrompt)
             try AVAudioSession.sharedInstance().setActive(true)
@@ -24,24 +24,27 @@ class Speaker: NSObject, ObservableObject, AVSpeechSynthesizerDelegate {
     }
     
     func speak(text: String, messageId: UUID) {
+        let settings = PersistenceManager.shared.loadSettings()
+        
         if isSpeaking {
             let previousId = currentMessageId
             stop()
-            // If tapping the same message, satisfy the toggle behavior (just stop)
-            if previousId == messageId {
-                return
-            }
+            if previousId == messageId { return }
         }
         
-        // Clean markdown for speech
-        let cleanText = cleanMarkdownKey(text)
+        let cleanText = cleanMarkdown(text)
         
         let utterance = AVSpeechUtterance(string: cleanText)
         utterance.voice = AVSpeechSynthesisVoice(language: "en-US")
-        utterance.rate = AVSpeechUtteranceDefaultSpeechRate
+        utterance.rate = settings.speechRate
         
         currentMessageId = messageId
         isSpeaking = true
+        
+        if settings.hapticsEnabled {
+            WKInterfaceDevice.current().play(.start)
+        }
+        
         synthesizer.speak(utterance)
     }
     
@@ -69,25 +72,22 @@ class Speaker: NSObject, ObservableObject, AVSpeechSynthesizerDelegate {
         }
     }
     
-    // Helper to remove basic markdown for cleaner speech
-    private func cleanMarkdownKey(_ text: String) -> String {
+    // MARK: - Markdown Cleaning
+    
+    private func cleanMarkdown(_ text: String) -> String {
         var clean = text
-        // Remove bold/italics markers
         clean = clean.replacingOccurrences(of: "**", with: "")
         clean = clean.replacingOccurrences(of: "*", with: "")
-        clean = clean.replacingOccurrences(of: "`", with: " code ") // Indicate code slightly
-        // Remove LaTeX delimiters
+        clean = clean.replacingOccurrences(of: "`", with: " code ")
         clean = clean.replacingOccurrences(of: "$$", with: "")
         clean = clean.replacingOccurrences(of: "$", with: "")
-        // Remove links [text](url) -> text
-        // (Regex would be better but this is a simple pass)
         
-        // Remove Emojis (prevent reading them as "Sparkles", "Rocket", etc.)
+        // Remove emojis
         clean = clean.unicodeScalars
             .filter { !$0.properties.isEmojiPresentation }
             .map(String.init)
             .joined()
-            
+        
         return clean
     }
 }

@@ -5,77 +5,86 @@ struct MessageView: View {
     @StateObject private var speaker = Speaker.shared
     
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
+        VStack(alignment: .leading, spacing: 3) {
             // MARK: - Markdown Content
-            // We parse content hierarchically using the robust parser
             let parts = MarkdownParser.shared.parse(message.text)
             
-            // Use enumerated() to provide stable identity based on position
-            // This prevents full view recreation when text appends
             ForEach(Array(parts.enumerated()), id: \.offset) { _, part in
                 switch part.type {
                 case .code(let language):
                     VStack(alignment: .leading, spacing: 0) {
                         if let language = language, !language.isEmpty {
                             Text(language.uppercased())
-                                .font(.system(size: 8, weight: .bold, design: .monospaced))
+                                .font(.system(size: 7, weight: .bold, design: .monospaced))
                                 .foregroundStyle(.secondary)
-                                .padding(.bottom, 2)
+                                .padding(.bottom, 1)
                         }
-                        
                         Text(part.text)
-                            .font(.system(.caption2, design: .monospaced))
+                            .font(.system(size: 9, design: .monospaced))
                             .frame(maxWidth: .infinity, alignment: .leading)
                     }
-                    .padding(6)
+                    .padding(5)
                     .background(Color.black.opacity(0.5))
-                    .cornerRadius(6)
+                    .cornerRadius(5)
                     
                 case .blockMath:
                     Text(part.text)
-                        .font(.system(.caption2, design: .serif))
+                        .font(.system(size: 10, design: .serif))
                         .italic()
-                        .padding(4)
+                        .padding(3)
                         .frame(maxWidth: .infinity, alignment: .center)
                         .background(Color.white.opacity(0.1))
                         .cornerRadius(4)
-                        
+                    
                 case .inlineMath:
                     Text(part.text)
-                        .font(.system(.caption, design: .serif))
+                        .font(.system(size: 10, design: .serif))
                         .italic()
                         .padding(.horizontal, 2)
                         .background(Color.white.opacity(0.05))
                         .cornerRadius(2)
-                        
+                    
                 case .text:
-                    // Using LocalizedStringKey allows SwiftUI to parse standard markdown (bold/italic) in text
                     Text(LocalizedStringKey(part.text))
-                        .font(.caption)
+                        .font(.system(size: 12))
                 }
             }
             
             // MARK: - TTS Indicator
-            // Only show for model messages that are currently speaking
             if message.role == .model && speaker.currentMessageId == message.id && speaker.isSpeaking {
-                HStack(spacing: 4) {
+                HStack(spacing: 3) {
                     Image(systemName: "waveform")
+                        .font(.system(size: 8))
                         .symbolEffect(.variableColor.iterative.reversing)
-                    Text("Speaking...")
-                        .font(.caption2)
+                    Text("Speaking…")
+                        .font(.system(size: 9))
                         .foregroundStyle(.secondary)
                 }
-                .padding(.top, 4)
+                .padding(.top, 2)
             }
         }
-        .padding(8)
-        .frame(maxWidth: message.role == .model ? .infinity : nil, alignment: .leading) // Ensure model messages fill width
-        .background(RoundedRectangle(cornerRadius: 12)
-            .fill(message.role == .user ? Color.blue.opacity(0.3) : Color.gray.opacity(0.15)))
-        // Tap to Speak logic
+        .padding(6)
+        .frame(maxWidth: message.role == .model ? .infinity : nil, alignment: .leading)
+        .background(
+            RoundedRectangle(cornerRadius: 10)
+                .fill(message.role == .user ? Color.blue.opacity(0.3) : Color.gray.opacity(0.15))
+        )
+        // Tap to speak
         .onTapGesture {
             if message.role == .model {
                 speaker.speak(text: message.text, messageId: message.id)
+            }
+        }
+        // Swipe to copy (model messages)
+        .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+            if message.role == .model {
+                Button {
+                    // Copy not available on watchOS, but we can provide haptic feedback
+                    WKInterfaceDevice.current().play(.click)
+                } label: {
+                    Label("Copy", systemImage: "doc.on.doc")
+                }
+                .tint(.blue)
             }
         }
         .animation(.default, value: speaker.currentMessageId)

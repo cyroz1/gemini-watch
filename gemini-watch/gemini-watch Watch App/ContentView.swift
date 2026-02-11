@@ -5,104 +5,203 @@ struct ContentView: View {
     @State private var inputText = ""
     @FocusState private var isInputFocused: Bool
     
+    let conversation: Conversation
+    var onUpdate: (() -> Void)?
+    
+    private let settings = PersistenceManager.shared.loadSettings()
+    
     var body: some View {
-        NavigationStack {
-ZStack(alignment: .bottom) {
-                ScrollViewReader { proxy in
-                    ScrollView {
-                        LazyVStack(spacing: 8) {
-                            // Message is now Identifiable
-                            ForEach(viewModel.messages) { msg in
-                                HStack {
-                                    if msg.role == .user { Spacer(minLength: 20) }
-                                    
-                                    MessageView(message: msg)
-                                        .onLongPressGesture {
+        ZStack(alignment: .bottom) {
+            // MARK: - Messages
+            ScrollViewReader { proxy in
+                ScrollView {
+                    LazyVStack(spacing: 6) {
+                        if viewModel.messages.isEmpty {
+                            emptyState
+                        }
+                        
+                        ForEach(viewModel.messages) { msg in
+                            HStack {
+                                if msg.role == .user { Spacer(minLength: 16) }
+                                
+                                MessageView(message: msg)
+                                    .onLongPressGesture {
+                                        if settings.hapticsEnabled {
                                             WKInterfaceDevice.current().play(.click)
-                                            inputText = msg.text
-                                            viewModel.editingMessageId = msg.id
-                                            isInputFocused = true
                                         }
-                                    
-                                    // Model messages take full width
-                                    // if msg.role == .model { Spacer(minLength: 20) }
-                                }
-                                .padding(.horizontal, 4)
-                                .id(msg.id) // Use UUID for ID
+                                        inputText = msg.text
+                                        viewModel.editingMessageId = msg.id
+                                        isInputFocused = true
+                                    }
+                                    .transition(.opacity.combined(with: .move(edge: .bottom)))
                             }
-                            
-                            // Show loader at the end of the list
-                            if viewModel.isLoading {
-                                HStack {
-                                    ProgressView()
-                                        .padding(8)
-                                    Spacer()
-                                }
-                                .id("loader")
-                            }
-                        }
-                        .padding(.vertical)
-                        // Add bottom padding so content isn't hidden behind the input bar
-                        .padding(.bottom, 60)
-                    }
-                    .onChange(of: viewModel.messages.count) {
-                        guard let lastMsg = viewModel.messages.last else { return }
-                        
-                        // Play haptic when a new model message arrives (simple check)
-                        if lastMsg.role == .model {
-                            WKInterfaceDevice.current().play(.success)
+                            .padding(.horizontal, 3)
+                            .id(msg.id)
                         }
                         
-                        DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
-                            withAnimation(.spring(response: 0.35, dampingFraction: 0.8)) {
-                                proxy.scrollTo(lastMsg.id, anchor: lastMsg.role == .model ? .top : .bottom)
+                        // Loading indicator
+                        if viewModel.isLoading {
+                            HStack {
+                                ProgressView()
+                                    .scaleEffect(0.8)
+                                    .padding(6)
+                                Spacer()
                             }
+                            .id("loader")
+                        }
+                        
+                        // Quick-reply suggestions
+                        if !viewModel.suggestions.isEmpty {
+                            suggestionChips
+                                .id("suggestions")
+                                .transition(.opacity)
                         }
                     }
+                    .padding(.top, 4)
+                    .padding(.bottom, 52)
                 }
-
-                // Floating Input Bar
-                HStack {
-                    TextField(viewModel.editingMessageId == nil ? "Ask Gemini..." : "Editing...", text: $inputText)
-                        .font(.caption2) // Smaller font
-                        .frame(height: 35) // Smaller fixed height
-                        .focused($isInputFocused)
-                        .handGestureShortcut(.primaryAction)
-                        .onSubmit {
-                            if let id = viewModel.editingMessageId {
-                                viewModel.editMessage(id: id, newText: inputText)
-                                viewModel.editingMessageId = nil
-                            } else {
-                                viewModel.sendMessage(inputText)
-                            }
-                            WKInterfaceDevice.current().play(.click)
-                            inputText = ""
-                        }
-                }
-                .padding(.horizontal, 8)
-                .padding(.vertical, 8)
-                .background(.ultraThinMaterial)
-                .ignoresSafeArea(edges: .bottom) // Extend blur to bottom edge
-                
-                if let error = viewModel.errorMessage {
-                    ScrollView {
-                        Text(error)
-                            .font(.caption2)
-                            .foregroundColor(.red)
-                            .padding(4)
+                .onChange(of: viewModel.messages.count) {
+                    guard let lastMsg = viewModel.messages.last else { return }
+                    
+                    if lastMsg.role == .model && settings.hapticsEnabled {
+                        WKInterfaceDevice.current().play(.success)
                     }
-                    .frame(maxHeight: 60)
+                    
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                            proxy.scrollTo(lastMsg.id, anchor: lastMsg.role == .model ? .top : .bottom)
+                        }
+                    }
+                    
+                    onUpdate?()
                 }
             }
-            .toolbar {
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button(action: { viewModel.resetChat() }) {
-                        Image(systemName: "plus.circle.fill")
-                    }
+            
+            // MARK: - Input Bar
+            inputBar
+            
+            // MARK: - Error
+            if let error = viewModel.errorMessage {
+                errorBanner(error)
+            }
+        }
+        .navigationBarTitleDisplayMode(.inline)
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button {
+                    viewModel.resetChat()
+                    onUpdate?()
+                } label: {
+                    Image(systemName: "plus.circle.fill")
+                        .font(.caption)
                 }
             }
         }
+        .onAppear {
+            viewModel.loadConversation(conversation)
+        }
         .edgesIgnoringSafeArea(.bottom)
     }
+    
+    // MARK: - Empty State
+    
+    private var emptyState: some View {
+        VStack(spacing: 6) {
+            Spacer().frame(height: 20)
+            Image(systemName: "sparkles")
+                .font(.title3)
+                .foregroundStyle(.blue.opacity(0.6))
+            Text("Ask Gemini anything")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+            Spacer().frame(height: 20)
+        }
+        .frame(maxWidth: .infinity)
+    }
+    
+    // MARK: - Suggestion Chips
+    
+    private var suggestionChips: some View {
+        ScrollView(.horizontal, showsIndicators: false) {
+            HStack(spacing: 4) {
+                ForEach(viewModel.suggestions, id: \.self) { suggestion in
+                    Button {
+                        viewModel.sendMessage(suggestion)
+                        if settings.hapticsEnabled {
+                            WKInterfaceDevice.current().play(.click)
+                        }
+                    } label: {
+                        Text(suggestion)
+                            .font(.system(size: 10, weight: .medium))
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 4)
+                            .background(Color.blue.opacity(0.2))
+                            .clipShape(Capsule())
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.horizontal, 4)
+        }
+    }
+    
+    // MARK: - Input Bar
+    
+    private var inputBar: some View {
+        HStack(spacing: 4) {
+            TextField(viewModel.editingMessageId == nil ? "Ask Gemini…" : "Editing…", text: $inputText)
+                .font(.caption2)
+                .frame(height: 32)
+                .focused($isInputFocused)
+                .handGestureShortcut(.primaryAction)
+                .onSubmit {
+                    sendOrEdit()
+                }
+            
+            // Voice dictation button
+            Button {
+                isInputFocused = true
+            } label: {
+                Image(systemName: "mic.fill")
+                    .font(.system(size: 12))
+                    .foregroundStyle(.blue)
+            }
+            .buttonStyle(.plain)
+            .frame(width: 24, height: 24)
+        }
+        .padding(.horizontal, 6)
+        .padding(.vertical, 6)
+        .background(.ultraThinMaterial)
+        .ignoresSafeArea(edges: .bottom)
+    }
+    
+    // MARK: - Error Banner
+    
+    private func errorBanner(_ error: String) -> some View {
+        Text(error)
+            .font(.system(size: 9))
+            .foregroundStyle(.red)
+            .padding(4)
+            .frame(maxWidth: .infinity)
+            .background(Color.red.opacity(0.1))
+            .cornerRadius(6)
+            .padding(.horizontal, 6)
+            .padding(.bottom, 46)
+            .transition(.opacity)
+    }
+    
+    // MARK: - Actions
+    
+    private func sendOrEdit() {
+        if let id = viewModel.editingMessageId {
+            viewModel.editMessage(id: id, newText: inputText)
+            viewModel.editingMessageId = nil
+        } else {
+            viewModel.sendMessage(inputText)
+        }
+        if settings.hapticsEnabled {
+            WKInterfaceDevice.current().play(.click)
+        }
+        inputText = ""
+    }
 }
-
