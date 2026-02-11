@@ -26,7 +26,7 @@ actor GeminiService {
                         Content(role: message.role.rawValue, parts: [Part(text: message.text)])
                     },
                     system_instruction: Content(role: "system", parts: [
-                        Part(text: "You are a helpful AI assistant on Apple Watch. Be very concise — use short sentences, bullet points, and bold key terms. Avoid long paragraphs. Format for tiny screens.")
+                        Part(text: "You are a helpful AI assistant. Be very concise — use short sentences, bullet points, and bold key terms. Avoid long paragraphs. Format for tiny screens.")
                     ])
                 )
                 

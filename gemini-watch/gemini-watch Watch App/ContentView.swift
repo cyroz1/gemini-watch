@@ -58,7 +58,7 @@ struct ContentView: View {
                         }
                     }
                     .padding(.top, 4)
-                    .padding(.bottom, 52)
+                    .padding(.bottom, 80)
                 }
                 .onChange(of: viewModel.messages.count) {
                     guard let lastMsg = viewModel.messages.last else { return }
@@ -69,7 +69,7 @@ struct ContentView: View {
                     
                     DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
                         withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                            proxy.scrollTo(lastMsg.id, anchor: lastMsg.role == .model ? .top : .bottom)
+                            proxy.scrollTo(lastMsg.id, anchor: .bottom)
                         }
                     }
                     
