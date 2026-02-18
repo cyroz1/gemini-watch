@@ -148,31 +148,18 @@ struct ContentView: View {
     // MARK: - Input Bar
     
     private var inputBar: some View {
-        HStack(spacing: 4) {
-            TextField(viewModel.editingMessageId == nil ? "Ask Gemini…" : "Editing…", text: $inputText)
-                .font(.caption2)
-                .frame(height: 32)
-                .focused($isInputFocused)
-                .handGestureShortcut(.primaryAction)
-                .onSubmit {
-                    sendOrEdit()
-                }
-            
-            // Voice dictation button
-            Button {
-                isInputFocused = true
-            } label: {
-                Image(systemName: "mic.fill")
-                    .font(.system(size: 12))
-                    .foregroundStyle(.blue)
+        TextField(viewModel.editingMessageId == nil ? "Ask Gemini…" : "Editing…", text: $inputText)
+            .font(.caption2)
+            .frame(height: 32)
+            .focused($isInputFocused)
+            .handGestureShortcut(.primaryAction)
+            .onSubmit {
+                sendOrEdit()
             }
-            .buttonStyle(.plain)
-            .frame(width: 24, height: 24)
-        }
-        .padding(.horizontal, 6)
-        .padding(.vertical, 6)
-        .background(.ultraThinMaterial)
-        .ignoresSafeArea(edges: .bottom)
+            .padding(.horizontal, 6)
+            .padding(.vertical, 6)
+            .background(.ultraThinMaterial)
+            .ignoresSafeArea(edges: .bottom)
     }
     
     // MARK: - Error Banner
