@@ -75,6 +75,18 @@ struct ContentView: View {
                     
                     onUpdate?()
                 }
+                .onChange(of: viewModel.suggestions) {
+                    // When suggestions appear, keep the last reply in view
+                    // (anchored at top) so the user can read it before scrolling
+                    // down to see the chips.
+                    guard !viewModel.suggestions.isEmpty,
+                          let lastMsg = viewModel.messages.last else { return }
+                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                            proxy.scrollTo(lastMsg.id, anchor: .top)
+                        }
+                    }
+                }
             }
             
             // MARK: - Input Bar
@@ -122,27 +134,26 @@ struct ContentView: View {
     // MARK: - Suggestion Chips
     
     private var suggestionChips: some View {
-        ScrollView(.horizontal, showsIndicators: false) {
-            HStack(spacing: 4) {
-                ForEach(viewModel.suggestions, id: \.self) { suggestion in
-                    Button {
-                        viewModel.sendMessage(suggestion)
-                        if settings.hapticsEnabled {
-                            WKInterfaceDevice.current().play(.click)
-                        }
-                    } label: {
-                        Text(suggestion)
-                            .font(.system(size: 10, weight: .medium))
-                            .padding(.horizontal, 8)
-                            .padding(.vertical, 4)
-                            .background(Color.blue.opacity(0.2))
-                            .clipShape(Capsule())
+        VStack(alignment: .leading, spacing: 4) {
+            ForEach(viewModel.suggestions, id: \.self) { suggestion in
+                Button {
+                    viewModel.sendMessage(suggestion)
+                    if settings.hapticsEnabled {
+                        WKInterfaceDevice.current().play(.click)
                     }
-                    .buttonStyle(.plain)
+                } label: {
+                    Text(suggestion)
+                        .font(.system(size: 10, weight: .medium))
+                        .padding(.horizontal, 8)
+                        .padding(.vertical, 4)
+                        .background(Color.blue.opacity(0.2))
+                        .clipShape(Capsule())
                 }
+                .buttonStyle(.plain)
             }
-            .padding(.horizontal, 4)
         }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .padding(.horizontal, 4)
     }
     
     // MARK: - Input Bar
