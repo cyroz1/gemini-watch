@@ -6,15 +6,15 @@ import WatchKit
 @MainActor
 class Speaker: NSObject, ObservableObject, AVSpeechSynthesizerDelegate {
     static let shared = Speaker()
-    
+
     private let synthesizer = AVSpeechSynthesizer()
     @Published var isSpeaking = false
     @Published var currentMessageId: UUID? = nil
-    
+
     override init() {
         super.init()
         synthesizer.delegate = self
-        
+
         do {
             try AVAudioSession.sharedInstance().setCategory(.playback, mode: .voicePrompt)
             try AVAudioSession.sharedInstance().setActive(true)
@@ -22,32 +22,29 @@ class Speaker: NSObject, ObservableObject, AVSpeechSynthesizerDelegate {
             print("Failed to setup audio session: \(error)")
         }
     }
-    
-    func speak(text: String, messageId: UUID) {
-        let settings = PersistenceManager.shared.loadSettings()
-        
+
+    /// Speak the given text. Callers pass settings so Speaker doesn't load from disk on every call.
+    func speak(text: String, messageId: UUID, rate: Float, hapticsEnabled: Bool) {
         if isSpeaking {
             let previousId = currentMessageId
             stop()
             if previousId == messageId { return }
         }
-        
-        let cleanText = cleanMarkdown(text)
-        
-        let utterance = AVSpeechUtterance(string: cleanText)
+
+        let utterance = AVSpeechUtterance(string: cleanMarkdown(text))
         utterance.voice = AVSpeechSynthesisVoice(language: "en-US")
-        utterance.rate = settings.speechRate
-        
+        utterance.rate = rate
+
         currentMessageId = messageId
         isSpeaking = true
-        
-        if settings.hapticsEnabled {
+
+        if hapticsEnabled {
             WKInterfaceDevice.current().play(.start)
         }
-        
+
         synthesizer.speak(utterance)
     }
-    
+
     func stop() {
         if synthesizer.isSpeaking {
             synthesizer.stopSpeaking(at: .immediate)
@@ -55,25 +52,25 @@ class Speaker: NSObject, ObservableObject, AVSpeechSynthesizerDelegate {
         isSpeaking = false
         currentMessageId = nil
     }
-    
+
     // MARK: - AVSpeechSynthesizerDelegate
-    
+
     nonisolated func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didFinish utterance: AVSpeechUtterance) {
         Task { @MainActor in
             self.isSpeaking = false
             self.currentMessageId = nil
         }
     }
-    
+
     nonisolated func speechSynthesizer(_ synthesizer: AVSpeechSynthesizer, didCancel utterance: AVSpeechUtterance) {
         Task { @MainActor in
             self.isSpeaking = false
             self.currentMessageId = nil
         }
     }
-    
+
     // MARK: - Markdown Cleaning
-    
+
     private func cleanMarkdown(_ text: String) -> String {
         var clean = text
         clean = clean.replacingOccurrences(of: "**", with: "")
@@ -81,13 +78,10 @@ class Speaker: NSObject, ObservableObject, AVSpeechSynthesizerDelegate {
         clean = clean.replacingOccurrences(of: "`", with: " code ")
         clean = clean.replacingOccurrences(of: "$$", with: "")
         clean = clean.replacingOccurrences(of: "$", with: "")
-        
-        // Remove emojis
         clean = clean.unicodeScalars
             .filter { !$0.properties.isEmojiPresentation }
             .map(String.init)
             .joined()
-        
         return clean
     }
 }

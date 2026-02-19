@@ -14,190 +14,198 @@ struct ContentPart: Equatable, Hashable {
 
 class MarkdownParser {
     static let shared = MarkdownParser()
-    
-    private init() {}
-    
+
+    // MARK: - Pre-compiled Regexes (compiled once at init)
+    private let codeRegex: NSRegularExpression
+    private let blockMathRegex: NSRegularExpression
+    private let inlineMathRegex: NSRegularExpression
+    private let listMarkerRegex: NSRegularExpression
+    private let whitespaceRegex: NSRegularExpression
+
+    // Math-formatting regexes (also pre-compiled)
+    private let fracRegex: NSRegularExpression
+    private let sqrtNRegex: NSRegularExpression
+    private let sqrtRegex: NSRegularExpression
+    private let leftBracketRegex: NSRegularExpression
+    private let rightBracketRegex: NSRegularExpression
+    private let supRegex: NSRegularExpression
+    private let subRegex: NSRegularExpression
+    private let textCmdRegex: NSRegularExpression
+    private let mathCmdRegex: NSRegularExpression
+    private let unknownCmdRegex: NSRegularExpression
+    private let multiSpaceRegex: NSRegularExpression
+
+    // MARK: - Parse result cache (keyed by message text)
+    private var cache: [String: [ContentPart]] = [:]
+    private let cacheLimit = 100
+
+    private init() {
+        func make(_ pattern: String, _ opts: NSRegularExpression.Options = []) -> NSRegularExpression {
+            // Patterns are compile-time constants — safe to force-unwrap
+            return try! NSRegularExpression(pattern: pattern, options: opts)
+        }
+        codeRegex        = make("```(?:([^\\n]*?)\\n)?([\\s\\S]*?)```")
+        blockMathRegex   = make("\\$\\$([\\s\\S]*?)\\$\\$")
+        inlineMathRegex  = make("\\$(?!\\s)((?:[^$\\n]|\\\\.)*?)(?<!\\s)\\$")
+        listMarkerRegex  = make("^(\\s*)\\*(\\s+)", .anchorsMatchLines)
+        whitespaceRegex  = make("[ \\t]+")
+        fracRegex        = make("\\\\frac\\{([^}]*)\\}\\{([^}]*)\\}")
+        sqrtNRegex       = make("\\\\sqrt\\[([^\\]]*)\\]\\{([^}]*)\\}")
+        sqrtRegex        = make("\\\\sqrt\\{([^}]*)\\}")
+        leftBracketRegex = make("\\\\left\\s*([\\(\\)\\[\\]\\{\\}|])")
+        rightBracketRegex = make("\\\\right\\s*([\\(\\)\\[\\]\\{\\}|])")
+        supRegex         = make("\\^\\{([^}]*)\\}")
+        subRegex         = make("_\\{([^}]*)\\}")
+        textCmdRegex     = make("\\\\text\\{([^}]*)\\}")
+        mathCmdRegex     = make("\\\\math[a-z]+\\{([^}]*)\\}")
+        unknownCmdRegex  = make("\\\\[a-zA-Z]+")
+        multiSpaceRegex  = make("[ \\t]+")
+    }
+
     func parse(_ text: String) -> [ContentPart] {
+        if let cached = cache[text] { return cached }
+        let result = doParse(text)
+        if cache.count >= cacheLimit { cache.removeAll() } // simple eviction
+        cache[text] = result
+        return result
+    }
+
+    private func doParse(_ text: String) -> [ContentPart] {
         var parts: [ContentPart] = []
-        
         let fullRange = NSRange(text.startIndex..<text.endIndex, in: text)
-        
+
         // 1. Extract Code Blocks
-        let codePattern = "```(?:([^\\n]*?)\\n)?([\\s\\S]*?)```"
-        let codeRegex = try! NSRegularExpression(pattern: codePattern, options: [])
         var codeMatches: [(range: NSRange, part: ContentPart)] = []
-        
         codeRegex.enumerateMatches(in: text, options: [], range: fullRange) { match, _, _ in
             guard let match = match, match.range.location != NSNotFound else { return }
-            
+
             let languageRange = match.range(at: 1)
-            let contentRange = match.range(at: 2)
-            
+            let contentRange  = match.range(at: 2)
+
             var language: String? = nil
-            if languageRange.location != NSNotFound, let range = Range(languageRange, in: text) {
-                let langStr = String(text[range]).trimmingCharacters(in: .whitespacesAndNewlines)
-                if !langStr.isEmpty { language = langStr }
+            if languageRange.location != NSNotFound, let r = Range(languageRange, in: text) {
+                let lang = String(text[r]).trimmingCharacters(in: .whitespacesAndNewlines)
+                if !lang.isEmpty { language = lang }
             }
-            
-            if contentRange.location != NSNotFound, let range = Range(contentRange, in: text) {
-                let content = String(text[range])
-                codeMatches.append((match.range, ContentPart(text: content, type: .code(language: language))))
+
+            if contentRange.location != NSNotFound, let r = Range(contentRange, in: text) {
+                codeMatches.append((match.range, ContentPart(text: String(text[r]), type: .code(language: language))))
             }
         }
-        
-        // 2. Extract Math (Block and Inline)
+
+        // 2. Extract Math
         func isInsideCode(_ range: NSRange) -> Bool {
             codeMatches.contains { NSIntersectionRange(range, $0.range).length > 0 }
         }
-        
+
         var mathMatches: [(range: NSRange, part: ContentPart)] = []
-        
-        // Block Math: $$content$$
-        let blockMathRegex = try! NSRegularExpression(pattern: "\\$\\$([\\s\\S]*?)\\$\\$", options: [])
+
         blockMathRegex.enumerateMatches(in: text, options: [], range: fullRange) { match, _, _ in
             guard let match = match, !isInsideCode(match.range) else { return }
-            if let contentRange = Range(match.range(at: 1), in: text) {
-                let content = String(text[contentRange]).trimmingCharacters(in: .whitespacesAndNewlines)
+            if let r = Range(match.range(at: 1), in: text) {
+                let content = String(text[r]).trimmingCharacters(in: .whitespacesAndNewlines)
                 mathMatches.append((match.range, ContentPart(text: formatMath(content), type: .blockMath)))
             }
         }
-        
-        // Inline Math: $content$
-        let inlineMathPattern = "\\$(?!\\s)((?:[^$\\n]|\\\\.)*?)(?<!\\s)\\$"
-        let inlineMathRegex = try! NSRegularExpression(pattern: inlineMathPattern, options: [])
+
         inlineMathRegex.enumerateMatches(in: text, options: [], range: fullRange) { match, _, _ in
             guard let match = match, !isInsideCode(match.range) else { return }
-            let overlapsBlock = mathMatches.contains { NSIntersectionRange(match.range, $0.range).length > 0 }
-            if overlapsBlock { return }
-            if let contentRange = Range(match.range(at: 1), in: text) {
-                let content = String(text[contentRange])
-                mathMatches.append((match.range, ContentPart(text: formatMath(content), type: .inlineMath)))
+            let overlaps = mathMatches.contains { NSIntersectionRange(match.range, $0.range).length > 0 }
+            if overlaps { return }
+            if let r = Range(match.range(at: 1), in: text) {
+                mathMatches.append((match.range, ContentPart(text: formatMath(String(text[r])), type: .inlineMath)))
             }
         }
-        
-        // 3. Assemble parts, filling gaps with plain text
-        var allSpecialParts = codeMatches + mathMatches
-        allSpecialParts.sort { $0.range.location < $1.range.location }
-        
-        var currentIndex = 0
+
+        // 3. Assemble parts
+        var allSpecial = codeMatches + mathMatches
+        allSpecial.sort { $0.range.location < $1.range.location }
+
+        var current = 0
         let nsText = text as NSString
-        
-        for part in allSpecialParts {
-            if part.range.location > currentIndex {
-                let gapRange = NSRange(location: currentIndex, length: part.range.location - currentIndex)
-                let gapText = nsText.substring(with: gapRange)
-                if !gapText.isEmpty {
-                    parts.append(ContentPart(text: formatText(gapText), type: .text))
-                }
+
+        for part in allSpecial {
+            if part.range.location > current {
+                let gap = nsText.substring(with: NSRange(location: current, length: part.range.location - current))
+                if !gap.isEmpty { parts.append(ContentPart(text: formatText(gap), type: .text)) }
             }
             parts.append(part.part)
-            currentIndex = part.range.location + part.range.length
+            current = part.range.location + part.range.length
         }
-        
-        if currentIndex < nsText.length {
-            let remainingRange = NSRange(location: currentIndex, length: nsText.length - currentIndex)
-            let remainingText = nsText.substring(with: remainingRange)
-            parts.append(ContentPart(text: formatText(remainingText), type: .text))
+        if current < nsText.length {
+            let tail = nsText.substring(with: NSRange(location: current, length: nsText.length - current))
+            if !tail.isEmpty { parts.append(ContentPart(text: formatText(tail), type: .text)) }
         }
-        
+
         return parts
     }
-    
+
     // MARK: - LaTeX → Readable Unicode
-    
-    /// Converts LaTeX math source into a human-readable Unicode approximation.
+
     private func formatMath(_ latex: String) -> String {
         var s = latex
-        
-        // \frac{a}{b} → (a)/(b)
-        s = applyRegex(s, pattern: "\\\\frac\\{([^}]*)\\}\\{([^}]*)\\}", template: "($1)/($2)")
-        
-        // \sqrt[n]{x} → n√(x)  (must come before plain \sqrt)
-        s = applyRegex(s, pattern: "\\\\sqrt\\[([^\\]]*)\\]\\{([^}]*)\\}", template: "$1√($2)")
-        // \sqrt{x} → √(x)
-        s = applyRegex(s, pattern: "\\\\sqrt\\{([^}]*)\\}", template: "√($1)")
-        
-        // \left( \right) etc. → just the bracket
-        s = applyRegex(s, pattern: "\\\\left\\s*([\\(\\)\\[\\]\\{\\}|])", template: "$1")
-        s = applyRegex(s, pattern: "\\\\right\\s*([\\(\\)\\[\\]\\{\\}|])", template: "$1")
-        
-        // Superscripts/subscripts with braces
-        s = applyRegex(s, pattern: "\\^\\{([^}]*)\\}", template: "^($1)")
-        s = applyRegex(s, pattern: "_\\{([^}]*)\\}", template: "_($1)")
-        
-        // \text{...}, \mathrm{...}, \mathbf{...}, etc.
-        s = applyRegex(s, pattern: "\\\\text\\{([^}]*)\\}", template: "$1")
-        s = applyRegex(s, pattern: "\\\\math[a-z]+\\{([^}]*)\\}", template: "$1")
-        
-        // Strip remaining grouping braces
-        s = s.replacingOccurrences(of: "{", with: "")
-        s = s.replacingOccurrences(of: "}", with: "")
-        
-        // Greek letters
+        s = apply(fracRegex,         to: s, template: "($1)/($2)")
+        s = apply(sqrtNRegex,        to: s, template: "$1√($2)")
+        s = apply(sqrtRegex,         to: s, template: "√($1)")
+        s = apply(leftBracketRegex,  to: s, template: "$1")
+        s = apply(rightBracketRegex, to: s, template: "$1")
+        s = apply(supRegex,          to: s, template: "^($1)")
+        s = apply(subRegex,          to: s, template: "_($1)")
+        s = apply(textCmdRegex,      to: s, template: "$1")
+        s = apply(mathCmdRegex,      to: s, template: "$1")
+        s = s.replacingOccurrences(of: "{", with: "").replacingOccurrences(of: "}", with: "")
+
         let greek: [(String, String)] = [
-            ("\\alpha", "α"), ("\\beta", "β"), ("\\gamma", "γ"), ("\\delta", "δ"),
-            ("\\epsilon", "ε"), ("\\varepsilon", "ε"), ("\\zeta", "ζ"), ("\\eta", "η"),
-            ("\\theta", "θ"), ("\\vartheta", "ϑ"), ("\\iota", "ι"), ("\\kappa", "κ"),
-            ("\\lambda", "λ"), ("\\mu", "μ"), ("\\nu", "ν"), ("\\xi", "ξ"),
-            ("\\pi", "π"), ("\\varpi", "ϖ"), ("\\rho", "ρ"), ("\\varrho", "ϱ"),
-            ("\\sigma", "σ"), ("\\varsigma", "ς"), ("\\tau", "τ"), ("\\upsilon", "υ"),
-            ("\\phi", "φ"), ("\\varphi", "φ"), ("\\chi", "χ"), ("\\psi", "ψ"),
-            ("\\omega", "ω"),
-            ("\\Gamma", "Γ"), ("\\Delta", "Δ"), ("\\Theta", "Θ"), ("\\Lambda", "Λ"),
-            ("\\Xi", "Ξ"), ("\\Pi", "Π"), ("\\Sigma", "Σ"), ("\\Upsilon", "Υ"),
-            ("\\Phi", "Φ"), ("\\Psi", "Ψ"), ("\\Omega", "Ω"),
+            ("\\alpha","α"),("\\beta","β"),("\\gamma","γ"),("\\delta","δ"),
+            ("\\epsilon","ε"),("\\varepsilon","ε"),("\\zeta","ζ"),("\\eta","η"),
+            ("\\theta","θ"),("\\vartheta","ϑ"),("\\iota","ι"),("\\kappa","κ"),
+            ("\\lambda","λ"),("\\mu","μ"),("\\nu","ν"),("\\xi","ξ"),
+            ("\\pi","π"),("\\varpi","ϖ"),("\\rho","ρ"),("\\varrho","ϱ"),
+            ("\\sigma","σ"),("\\varsigma","ς"),("\\tau","τ"),("\\upsilon","υ"),
+            ("\\phi","φ"),("\\varphi","φ"),("\\chi","χ"),("\\psi","ψ"),("\\omega","ω"),
+            ("\\Gamma","Γ"),("\\Delta","Δ"),("\\Theta","Θ"),("\\Lambda","Λ"),
+            ("\\Xi","Ξ"),("\\Pi","Π"),("\\Sigma","Σ"),("\\Upsilon","Υ"),
+            ("\\Phi","Φ"),("\\Psi","Ψ"),("\\Omega","Ω"),
         ]
         for (cmd, sym) in greek { s = s.replacingOccurrences(of: cmd, with: sym) }
-        
-        // Operators and symbols
+
         let operators: [(String, String)] = [
-            ("\\times", "×"), ("\\div", "÷"), ("\\pm", "±"), ("\\mp", "∓"),
-            ("\\cdot", "·"), ("\\cdots", "⋯"), ("\\ldots", "…"), ("\\vdots", "⋮"),
-            ("\\leq", "≤"), ("\\geq", "≥"), ("\\neq", "≠"), ("\\approx", "≈"),
-            ("\\equiv", "≡"), ("\\sim", "∼"), ("\\propto", "∝"),
-            ("\\infty", "∞"), ("\\partial", "∂"), ("\\nabla", "∇"),
-            ("\\sum", "Σ"), ("\\prod", "Π"), ("\\int", "∫"), ("\\oint", "∮"),
-            ("\\forall", "∀"), ("\\exists", "∃"), ("\\in", "∈"), ("\\notin", "∉"),
-            ("\\subset", "⊂"), ("\\supset", "⊃"), ("\\cup", "∪"), ("\\cap", "∩"),
-            ("\\emptyset", "∅"), ("\\varnothing", "∅"),
-            ("\\rightarrow", "→"), ("\\leftarrow", "←"), ("\\Rightarrow", "⇒"),
-            ("\\Leftarrow", "⇐"), ("\\leftrightarrow", "↔"), ("\\Leftrightarrow", "⟺"),
-            ("\\to", "→"), ("\\gets", "←"),
-            ("\\langle", "⟨"), ("\\rangle", "⟩"),
-            ("\\|", "‖"), ("\\,", " "), ("\\;", " "), ("\\:", " "), ("\\!", ""),
-            ("\\quad", "  "), ("\\qquad", "    "),
-            ("\\ln", "ln"), ("\\log", "log"), ("\\exp", "exp"),
-            ("\\sin", "sin"), ("\\cos", "cos"), ("\\tan", "tan"),
-            ("\\arcsin", "arcsin"), ("\\arccos", "arccos"), ("\\arctan", "arctan"),
-            ("\\lim", "lim"), ("\\max", "max"), ("\\min", "min"),
+            ("\\times","×"),("\\div","÷"),("\\pm","±"),("\\mp","∓"),
+            ("\\cdot","·"),("\\cdots","⋯"),("\\ldots","…"),("\\vdots","⋮"),
+            ("\\leq","≤"),("\\geq","≥"),("\\neq","≠"),("\\approx","≈"),
+            ("\\equiv","≡"),("\\sim","∼"),("\\propto","∝"),
+            ("\\infty","∞"),("\\partial","∂"),("\\nabla","∇"),
+            ("\\sum","Σ"),("\\prod","Π"),("\\int","∫"),("\\oint","∮"),
+            ("\\forall","∀"),("\\exists","∃"),("\\in","∈"),("\\notin","∉"),
+            ("\\subset","⊂"),("\\supset","⊃"),("\\cup","∪"),("\\cap","∩"),
+            ("\\emptyset","∅"),("\\varnothing","∅"),
+            ("\\rightarrow","→"),("\\leftarrow","←"),("\\Rightarrow","⇒"),
+            ("\\Leftarrow","⇐"),("\\leftrightarrow","↔"),("\\Leftrightarrow","⟺"),
+            ("\\to","→"),("\\gets","←"),
+            ("\\langle","⟨"),("\\rangle","⟩"),
+            ("\\\\ ","‖"),("\\,","  "),("\\;"," "),("\\:"," "),("\\!",""),
+            ("\\quad","  "),("\\qquad","    "),
+            ("\\ln","ln"),("\\log","log"),("\\exp","exp"),
+            ("\\sin","sin"),("\\cos","cos"),("\\tan","tan"),
+            ("\\arcsin","arcsin"),("\\arccos","arccos"),("\\arctan","arctan"),
+            ("\\lim","lim"),("\\max","max"),("\\min","min"),
         ]
         for (cmd, sym) in operators { s = s.replacingOccurrences(of: cmd, with: sym) }
-        
-        // Strip any remaining unknown \commands
-        s = applyRegex(s, pattern: "\\\\[a-zA-Z]+", template: "")
-        
-        // Clean up extra whitespace
-        s = applyRegex(s, pattern: "[ \\t]+", template: " ")
-        s = s.trimmingCharacters(in: .whitespacesAndNewlines)
-        
-        return s
+
+        s = apply(unknownCmdRegex, to: s, template: "")
+        s = apply(multiSpaceRegex, to: s, template: " ")
+        return s.trimmingCharacters(in: .whitespacesAndNewlines)
     }
-    
-    private func applyRegex(_ input: String, pattern: String, template: String) -> String {
-        guard let regex = try? NSRegularExpression(pattern: pattern, options: []) else { return input }
+
+    private func apply(_ regex: NSRegularExpression, to input: String, template: String) -> String {
         let range = NSRange(input.startIndex..<input.endIndex, in: input)
         return regex.stringByReplacingMatches(in: input, options: [], range: range, withTemplate: template)
     }
-    
+
     // MARK: - Plain Text Formatting
-    
+
     private func formatText(_ text: String) -> String {
-        // Replace "* " list markers with "• "
-        let pattern = "^(\\s*)\\*(\\s+)"
-        guard let regex = try? NSRegularExpression(pattern: pattern, options: .anchorsMatchLines) else {
-            return text
-        }
         let range = NSRange(text.startIndex..<text.endIndex, in: text)
-        return regex.stringByReplacingMatches(in: text, options: [], range: range, withTemplate: "$1•$2")
+        return listMarkerRegex.stringByReplacingMatches(in: text, options: [], range: range, withTemplate: "$1•$2")
     }
 }

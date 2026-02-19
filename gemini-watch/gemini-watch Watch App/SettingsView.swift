@@ -70,6 +70,21 @@ struct SettingsView: View {
                     Text("Features")
                         .font(.system(size: 9))
                 }
+
+                // System Prompt
+                Section {
+                    TextField("System prompt…", text: $settings.systemPrompt, axis: .vertical)
+                        .font(.system(size: 9))
+                        .lineLimit(4, reservesSpace: true)
+                    Button("Reset to Default") {
+                        settings.systemPrompt = AppSettings.defaultSystemPrompt
+                    }
+                    .font(.system(size: 9))
+                    .foregroundStyle(.secondary)
+                } header: {
+                    Text("System Prompt")
+                        .font(.system(size: 9))
+                }
                 
                 // Danger Zone
                 Section {

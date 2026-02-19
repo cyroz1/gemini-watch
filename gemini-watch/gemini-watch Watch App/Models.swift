@@ -46,11 +46,15 @@ struct AppSettings: Codable, Equatable {
     var speechRate: Float
     var hapticsEnabled: Bool
     var suggestionsEnabled: Bool
-    
+    var systemPrompt: String
+
+    static let defaultSystemPrompt = "You are a helpful AI assistant. Be very concise — use short sentences, bullet points, and bold key terms. Avoid long paragraphs. Format for tiny screens."
+
     static let `default` = AppSettings(
         modelName: "gemini-2.5-flash",
         speechRate: 0.5,
         hapticsEnabled: true,
-        suggestionsEnabled: true
+        suggestionsEnabled: true,
+        systemPrompt: defaultSystemPrompt
     )
 }

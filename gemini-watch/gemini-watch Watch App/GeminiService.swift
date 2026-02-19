@@ -12,7 +12,7 @@ actor GeminiService {
         return value
     }
     
-    func streamGenerateContent(messages: [Message], model: String = "gemini-2.5-flash") -> AsyncThrowingStream<String, Error> {
+    func streamGenerateContent(messages: [Message], model: String = "gemini-2.5-flash", systemPrompt: String = AppSettings.defaultSystemPrompt) -> AsyncThrowingStream<String, Error> {
         return AsyncThrowingStream { continuation in
             Task {
                 let urlString = "\(baseURL)\(model):streamGenerateContent?key=\(apiKey)&alt=sse"
@@ -26,7 +26,7 @@ actor GeminiService {
                         Content(role: message.role.rawValue, parts: [Part(text: message.text)])
                     },
                     system_instruction: Content(role: "system", parts: [
-                        Part(text: "You are a helpful AI assistant. Be very concise — use short sentences, bullet points, and bold key terms. Avoid long paragraphs. Format for tiny screens.")
+                        Part(text: systemPrompt)
                     ])
                 )
                 

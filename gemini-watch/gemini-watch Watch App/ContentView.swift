@@ -4,12 +4,12 @@ struct ContentView: View {
     @StateObject private var viewModel = ChatViewModel()
     @State private var inputText = ""
     @FocusState private var isInputFocused: Bool
-    
+    // @State so settings refresh when the view appears (e.g. after visiting Settings)
+    @State private var settings: AppSettings = PersistenceManager.shared.loadSettings()
+
     let conversation: Conversation
     var onUpdate: (() -> Void)?
-    
-    private let settings = PersistenceManager.shared.loadSettings()
-    
+
     var body: some View {
         ZStack(alignment: .bottom) {
             // MARK: - Messages
@@ -19,26 +19,30 @@ struct ContentView: View {
                         if viewModel.messages.isEmpty {
                             emptyState
                         }
-                        
+
                         ForEach(viewModel.messages) { msg in
                             HStack {
                                 if msg.role == .user { Spacer(minLength: 16) }
-                                
-                                MessageView(message: msg)
-                                    .onLongPressGesture {
-                                        if settings.hapticsEnabled {
-                                            WKInterfaceDevice.current().play(.click)
-                                        }
-                                        inputText = msg.text
-                                        viewModel.editingMessageId = msg.id
-                                        isInputFocused = true
+
+                                MessageView(
+                                    message: msg,
+                                    settings: settings,
+                                    isStreaming: viewModel.streamingMessageId == msg.id
+                                )
+                                .onLongPressGesture {
+                                    if settings.hapticsEnabled {
+                                        WKInterfaceDevice.current().play(.click)
                                     }
-                                    .transition(.opacity.combined(with: .move(edge: .bottom)))
+                                    inputText = msg.text
+                                    viewModel.editingMessageId = msg.id
+                                    isInputFocused = true
+                                }
+                                .transition(.opacity.combined(with: .move(edge: .bottom)))
                             }
                             .padding(.horizontal, 3)
                             .id(msg.id)
                         }
-                        
+
                         // Loading indicator
                         if viewModel.isLoading {
                             HStack {
@@ -49,7 +53,7 @@ struct ContentView: View {
                             }
                             .id("loader")
                         }
-                        
+
                         // Quick-reply suggestions
                         if !viewModel.suggestions.isEmpty {
                             suggestionChips
@@ -62,36 +66,36 @@ struct ContentView: View {
                 }
                 .onChange(of: viewModel.messages.count) {
                     guard let lastMsg = viewModel.messages.last else { return }
-                    
+
                     if lastMsg.role == .model && settings.hapticsEnabled {
                         WKInterfaceDevice.current().play(.success)
                     }
-                    
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.1) {
+
+                    // Use Task instead of DispatchQueue so the work can be cancelled with the view
+                    Task { @MainActor in
+                        try? await Task.sleep(nanoseconds: 100_000_000)
                         withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
                             proxy.scrollTo(lastMsg.id, anchor: .bottom)
                         }
                     }
-                    
-                    onUpdate?()
+
+                    viewModel.scheduleUpdate(onUpdate)
                 }
                 .onChange(of: viewModel.suggestions) {
-                    // When suggestions appear, keep the last reply in view
-                    // (anchored at top) so the user can read it before scrolling
-                    // down to see the chips.
                     guard !viewModel.suggestions.isEmpty,
                           let lastMsg = viewModel.messages.last else { return }
-                    DispatchQueue.main.asyncAfter(deadline: .now() + 0.15) {
+                    Task { @MainActor in
+                        try? await Task.sleep(nanoseconds: 150_000_000)
                         withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
                             proxy.scrollTo(lastMsg.id, anchor: .top)
                         }
                     }
                 }
             }
-            
+
             // MARK: - Input Bar
             inputBar
-            
+
             // MARK: - Error
             if let error = viewModel.errorMessage {
                 errorBanner(error)
@@ -111,12 +115,14 @@ struct ContentView: View {
         }
         .onAppear {
             viewModel.loadConversation(conversation)
+            // Reload settings in case they changed while away
+            settings = PersistenceManager.shared.loadSettings()
         }
         .edgesIgnoringSafeArea(.bottom)
     }
-    
+
     // MARK: - Empty State
-    
+
     private var emptyState: some View {
         VStack(spacing: 6) {
             Spacer().frame(height: 20)
@@ -130,9 +136,9 @@ struct ContentView: View {
         }
         .frame(maxWidth: .infinity)
     }
-    
+
     // MARK: - Suggestion Chips
-    
+
     private var suggestionChips: some View {
         VStack(alignment: .leading, spacing: 4) {
             ForEach(viewModel.suggestions, id: \.self) { suggestion in
@@ -155,9 +161,9 @@ struct ContentView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .padding(.horizontal, 4)
     }
-    
+
     // MARK: - Input Bar
-    
+
     private var inputBar: some View {
         TextField(viewModel.editingMessageId == nil ? "Ask Gemini…" : "Editing…", text: $inputText)
             .font(.caption2)
@@ -172,9 +178,9 @@ struct ContentView: View {
             .background(.ultraThinMaterial)
             .ignoresSafeArea(edges: .bottom)
     }
-    
+
     // MARK: - Error Banner
-    
+
     private func errorBanner(_ error: String) -> some View {
         Text(error)
             .font(.system(size: 9))
@@ -187,9 +193,9 @@ struct ContentView: View {
             .padding(.bottom, 46)
             .transition(.opacity)
     }
-    
+
     // MARK: - Actions
-    
+
     private func sendOrEdit() {
         if let id = viewModel.editingMessageId {
             viewModel.editMessage(id: id, newText: inputText)

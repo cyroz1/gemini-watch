@@ -124,12 +124,16 @@ struct ConversationListView: View {
 extension Date {
     var relativeString: String {
         let interval = -self.timeIntervalSinceNow
-        if interval < 60 { return "Just now" }
-        if interval < 3600 { return "\(Int(interval / 60))m ago" }
-        if interval < 86400 { return "\(Int(interval / 3600))h ago" }
+        if interval < 60     { return "Just now" }
+        if interval < 3600   { return "\(Int(interval / 60))m ago" }
+        if interval < 86400  { return "\(Int(interval / 3600))h ago" }
         if interval < 604800 { return "\(Int(interval / 86400))d ago" }
-        let formatter = DateFormatter()
-        formatter.dateFormat = "MMM d"
-        return formatter.string(from: self)
+        return Date.relativeDateFormatter.string(from: self)
     }
+
+    private static let relativeDateFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "MMM d"
+        return f
+    }()
 }
