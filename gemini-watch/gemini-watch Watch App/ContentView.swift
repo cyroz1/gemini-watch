@@ -7,7 +7,7 @@ struct ContentView: View {
     // @State so settings refresh when the view appears (e.g. after visiting Settings)
     @State private var settings: AppSettings = PersistenceManager.shared.loadSettings()
 
-    let conversation: Conversation
+    let conversationId: UUID
     var onUpdate: (() -> Void)?
 
     var body: some View {
@@ -60,9 +60,11 @@ struct ContentView: View {
                                 .id("suggestions")
                                 .transition(.opacity)
                         }
+
+                        Color.clear.frame(height: 80)
+                            .id("bottom_anchor")
                     }
                     .padding(.top, 4)
-                    .padding(.bottom, 80)
                 }
                 .onChange(of: viewModel.messages.count) {
                     guard let lastMsg = viewModel.messages.last else { return }
@@ -71,23 +73,28 @@ struct ContentView: View {
                         WKInterfaceDevice.current().play(.success)
                     }
 
-                    // Use Task instead of DispatchQueue so the work can be cancelled with the view
-                    Task { @MainActor in
-                        try? await Task.sleep(nanoseconds: 100_000_000)
+                    // Use DispatchQueue.main.async to reliably scroll after view updates
+                    DispatchQueue.main.async {
                         withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                            proxy.scrollTo(lastMsg.id, anchor: .bottom)
+                            if lastMsg.role == .model {
+                                proxy.scrollTo(lastMsg.id, anchor: .top)
+                            } else {
+                                proxy.scrollTo("bottom_anchor", anchor: .bottom)
+                            }
                         }
                     }
 
                     viewModel.scheduleUpdate(onUpdate)
                 }
                 .onChange(of: viewModel.suggestions) {
-                    guard !viewModel.suggestions.isEmpty,
-                          let lastMsg = viewModel.messages.last else { return }
-                    Task { @MainActor in
-                        try? await Task.sleep(nanoseconds: 150_000_000)
+                    guard !viewModel.suggestions.isEmpty else { return }
+                    DispatchQueue.main.async {
                         withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
-                            proxy.scrollTo(lastMsg.id, anchor: .top)
+                            if let lastMsg = viewModel.messages.last, lastMsg.role == .model {
+                                proxy.scrollTo(lastMsg.id, anchor: .top)
+                            } else {
+                                proxy.scrollTo("bottom_anchor", anchor: .bottom)
+                            }
                         }
                     }
                 }
@@ -114,7 +121,7 @@ struct ContentView: View {
             }
         }
         .onAppear {
-            viewModel.loadConversation(conversation)
+            viewModel.loadConversation(id: conversationId)
             // Reload settings in case they changed while away
             settings = PersistenceManager.shared.loadSettings()
         }
@@ -166,32 +173,47 @@ struct ContentView: View {
 
     private var inputBar: some View {
         TextField(viewModel.editingMessageId == nil ? "Ask Gemini…" : "Editing…", text: $inputText)
+            .textFieldStyle(.plain)
+            .buttonStyle(.plain)
             .font(.caption2)
-            .frame(height: 32)
+            .frame(height: 28)
             .focused($isInputFocused)
             .handGestureShortcut(.primaryAction)
             .onSubmit {
                 sendOrEdit()
             }
-            .padding(.horizontal, 6)
-            .padding(.vertical, 6)
+            .padding(.horizontal, 12)
+            .padding(.top, 6)
+            .padding(.bottom, 14)
             .background(.ultraThinMaterial)
+            .clipShape(ContainerRelativeShape())
             .ignoresSafeArea(edges: .bottom)
     }
 
     // MARK: - Error Banner
 
     private func errorBanner(_ error: String) -> some View {
-        Text(error)
-            .font(.system(size: 9))
-            .foregroundStyle(.red)
-            .padding(4)
-            .frame(maxWidth: .infinity)
-            .background(Color.red.opacity(0.1))
-            .cornerRadius(6)
-            .padding(.horizontal, 6)
-            .padding(.bottom, 46)
-            .transition(.opacity)
+        VStack(spacing: 6) {
+            Text(error)
+                .font(.system(size: 9))
+                .foregroundStyle(.red)
+                .multilineTextAlignment(.center)
+            
+            Button("Retry") {
+                viewModel.retry()
+            }
+            .font(.system(size: 10, weight: .medium))
+            .buttonStyle(.borderedProminent)
+            .tint(.red)
+            .controlSize(.mini)
+        }
+        .padding(6)
+        .frame(maxWidth: .infinity)
+        .background(Color.red.opacity(0.1))
+        .cornerRadius(6)
+        .padding(.horizontal, 6)
+        .padding(.bottom, 46)
+        .transition(.opacity)
     }
 
     // MARK: - Actions

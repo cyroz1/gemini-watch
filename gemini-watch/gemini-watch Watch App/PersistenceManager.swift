@@ -28,17 +28,23 @@ class PersistenceManager {
 
     // MARK: - Conversations
 
-    func loadConversations() -> [Conversation] {
+    func loadConversationsMetadata() -> [ConversationMetadata] {
         let files = (try? FileManager.default.contentsOfDirectory(
             at: conversationsDir,
             includingPropertiesForKeys: [.contentModificationDateKey],
             options: .skipsHiddenFiles
         )) ?? []
 
-        return files.compactMap { url -> Conversation? in
+        return files.compactMap { url -> ConversationMetadata? in
             guard let data = try? Data(contentsOf: url) else { return nil }
-            return try? decoder.decode(Conversation.self, from: data)
+            return try? decoder.decode(ConversationMetadata.self, from: data)
         }
+    }
+
+    func loadConversation(id: UUID) -> Conversation? {
+        let url = fileURL(for: id)
+        guard let data = try? Data(contentsOf: url) else { return nil }
+        return try? decoder.decode(Conversation.self, from: data)
     }
 
     func saveConversation(_ conversation: Conversation) {

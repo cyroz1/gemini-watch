@@ -41,6 +41,13 @@ struct Conversation: Identifiable, Codable, Equatable, Hashable {
     }
 }
 
+struct ConversationMetadata: Identifiable, Codable, Equatable, Hashable {
+    let id: UUID
+    var title: String
+    var createdAt: Date
+    var updatedAt: Date
+}
+
 struct AppSettings: Codable, Equatable {
     var modelName: String
     var speechRate: Float

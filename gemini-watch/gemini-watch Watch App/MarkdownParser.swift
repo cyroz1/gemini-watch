@@ -37,6 +37,7 @@ class MarkdownParser {
 
     // MARK: - Parse result cache (keyed by message text)
     private var cache: [String: [ContentPart]] = [:]
+    private var cacheKeys: [String] = [] // Tracks recency
     private let cacheLimit = 100
 
     private init() {
@@ -63,9 +64,20 @@ class MarkdownParser {
     }
 
     func parse(_ text: String) -> [ContentPart] {
-        if let cached = cache[text] { return cached }
+        if let cached = cache[text] {
+            // Move to end (most recently used)
+            if let index = cacheKeys.firstIndex(of: text) {
+                cacheKeys.remove(at: index)
+                cacheKeys.append(text)
+            }
+            return cached
+        }
         let result = doParse(text)
-        if cache.count >= cacheLimit { cache.removeAll() } // simple eviction
+        if cacheKeys.count >= cacheLimit {
+            let oldest = cacheKeys.removeFirst()
+            cache[oldest] = nil
+        }
+        cacheKeys.append(text)
         cache[text] = result
         return result
     }

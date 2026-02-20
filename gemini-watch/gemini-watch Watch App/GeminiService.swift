@@ -3,14 +3,14 @@ import Foundation
 actor GeminiService {
     private let baseURL = "https://generativelanguage.googleapis.com/v1beta/models/"
     
-    private var apiKey: String {
+    private let apiKey: String = {
         guard let filePath = Bundle.main.path(forResource: "Secrets", ofType: "plist"),
               let plist = NSDictionary(contentsOfFile: filePath),
               let value = plist.object(forKey: "GEMINI_API_KEY") as? String else {
             fatalError("Couldn't find key 'GEMINI_API_KEY' in 'Secrets.plist'.")
         }
         return value
-    }
+    }()
     
     func streamGenerateContent(messages: [Message], model: String = "gemini-2.5-flash", systemPrompt: String = AppSettings.defaultSystemPrompt) -> AsyncThrowingStream<String, Error> {
         return AsyncThrowingStream { continuation in

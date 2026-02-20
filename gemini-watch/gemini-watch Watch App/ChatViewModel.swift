@@ -13,9 +13,15 @@ class ChatViewModel: ObservableObject {
     /// ID of the message currently being streamed — used to show a typing cursor.
     @Published var streamingMessageId: UUID? = nil
 
-    private let geminiService = GeminiService()
-    private let persistence = PersistenceManager.shared
+    private let geminiService: GeminiService
+    private let persistence: PersistenceManager
     private var streamTask: Task<Void, Never>?
+
+    init(geminiService: GeminiService = GeminiService(),
+         persistence: PersistenceManager = PersistenceManager.shared) {
+        self.geminiService = geminiService
+        self.persistence = persistence
+    }
 
     // Debounce onUpdate so the conversation list doesn't reload on every streaming chunk
     private var updateWorkItem: DispatchWorkItem?
@@ -24,9 +30,14 @@ class ChatViewModel: ObservableObject {
 
     // MARK: - Conversation Management
 
-    func loadConversation(_ conversation: Conversation) {
-        conversationId = conversation.id
-        messages = conversation.messages
+    func loadConversation(id: UUID) {
+        if let convo = persistence.loadConversation(id: id) {
+            conversationId = convo.id
+            messages = convo.messages
+        } else {
+            conversationId = id
+            messages = []
+        }
         errorMessage = nil
         isLoading = false
         suggestions = []
@@ -75,6 +86,10 @@ class ChatViewModel: ObservableObject {
 
     // MARK: - Streaming
 
+    func retry() {
+        processRequest()
+    }
+
     private func processRequest() {
         streamTask?.cancel()
         isLoading = true
@@ -87,9 +102,14 @@ class ChatViewModel: ObservableObject {
             var messageIndex: Int? = nil
             var lastUpdate = Date()
 
+            var contextMessages = Array(messages.suffix(20))
+            if contextMessages.first?.role == .model {
+                contextMessages.removeFirst()
+            }
+
             do {
                 let stream = await geminiService.streamGenerateContent(
-                    messages: messages,
+                    messages: contextMessages,
                     model: settings.modelName,
                     systemPrompt: settings.systemPrompt
                 )
@@ -173,7 +193,7 @@ class ChatViewModel: ObservableObject {
         convo.updatedAt = Date()
         convo.autoTitle()
 
-        if let existing = persistence.loadConversations().first(where: { $0.id == id }) {
+        if let existing = persistence.loadConversationsMetadata().first(where: { $0.id == id }) {
             convo.createdAt = existing.createdAt
         }
 

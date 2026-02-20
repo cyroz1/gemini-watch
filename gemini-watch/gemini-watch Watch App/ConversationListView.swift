@@ -1,8 +1,8 @@
 import SwiftUI
 
 struct ConversationListView: View {
-    @State private var conversations: [Conversation] = []
-    @State private var activeConversation: Conversation?
+    @State private var conversations: [ConversationMetadata] = []
+    @State private var activeConversation: ConversationMetadata?
     @State private var showSettings = false
     
     private let persistence = PersistenceManager.shared
@@ -36,8 +36,8 @@ struct ConversationListView: View {
                     }
                 }
             }
-            .navigationDestination(item: $activeConversation) { conversation in
-                ContentView(conversation: conversation, onUpdate: refreshList)
+            .navigationDestination(item: $activeConversation) { metadata in
+                ContentView(conversationId: metadata.id, onUpdate: refreshList)
             }
             .sheet(isPresented: $showSettings) {
                 SettingsView(onClearAll: {
@@ -102,12 +102,17 @@ struct ConversationListView: View {
     private func startNewChat() {
         let newConvo = Conversation()
         persistence.saveConversation(newConvo)
-        activeConversation = newConvo
+        activeConversation = ConversationMetadata(
+            id: newConvo.id,
+            title: newConvo.title,
+            createdAt: newConvo.createdAt,
+            updatedAt: newConvo.updatedAt
+        )
         refreshList()
     }
     
     private func refreshList() {
-        conversations = persistence.loadConversations()
+        conversations = persistence.loadConversationsMetadata()
             .sorted { $0.updatedAt > $1.updatedAt }
     }
     
