@@ -106,9 +106,10 @@ actor GeminiService {
         
         let decoded = try JSONDecoder().decode(ModelsListResponse.self, from: data)
         
-        // Filter to models that support generateContent and extract clean names
+        // Filter to text-only Gemini models (excludes imagen, embedding, aqa, etc.)
         return decoded.models
             .filter { model in
+                model.name.hasPrefix("models/gemini-") &&
                 model.supportedGenerationMethods?.contains("generateContent") == true
             }
             .map { $0.name.replacingOccurrences(of: "models/", with: "") }
