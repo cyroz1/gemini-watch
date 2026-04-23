@@ -2,22 +2,21 @@ import SwiftUI
 
 struct MessageView: View {
     let message: Message
-    let settings: AppSettings
     let isStreaming: Bool
 
-    // Use @ObservedObject — Speaker.shared is a singleton we don't own
-    @ObservedObject private var speaker = Speaker.shared
+    /// Injected via environment — not a direct singleton reference (#18)
+    @EnvironmentObject private var speaker: Speaker
+    @EnvironmentObject private var settingsStore: AppSettingsStore
 
-    init(message: Message, settings: AppSettings, isStreaming: Bool = false) {
+    init(message: Message, isStreaming: Bool = false) {
         self.message = message
-        self.settings = settings
         self.isStreaming = isStreaming
     }
 
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
             // MARK: - Markdown Content
-            let parts = MarkdownParser.shared.parse(message.text)
+            let parts = MarkdownParser.shared.parse(message.text, isStreaming: isStreaming)
 
             ForEach(Array(parts.enumerated()), id: \.offset) { _, part in
                 switch part.type {
@@ -93,6 +92,12 @@ struct MessageView: View {
                 }
                 .padding(.top, 2)
             }
+
+            // MARK: - Timestamp (#14)
+            Text(message.createdAt.relativeString)
+                .font(.system(size: 8))
+                .foregroundStyle(.tertiary)
+                .padding(.top, 1)
         }
         .padding(6)
         .frame(maxWidth: message.role == .model ? .infinity : nil, alignment: .leading)
@@ -100,15 +105,37 @@ struct MessageView: View {
             RoundedRectangle(cornerRadius: 10)
                 .fill(message.role == .user ? Color.blue.opacity(0.3) : Color.gray.opacity(0.15))
         )
-        // Tap to speak — passes settings so Speaker doesn't re-load from disk
+        // Tap to speak (#18 — reads settings from environment)
         .onTapGesture {
             if message.role == .model {
                 speaker.speak(
                     text: message.text,
                     messageId: message.id,
-                    rate: settings.speechRate,
-                    hapticsEnabled: settings.hapticsEnabled
+                    rate: settingsStore.settings.speechRate,
+                    hapticsEnabled: settingsStore.settings.hapticsEnabled
                 )
+            }
+        }
+        // Context menu: Speak shortcut (#11 — no clipboard on watchOS, so Speak is the most useful action)
+        .contextMenu {
+            if message.role == .model {
+                Button {
+                    speaker.speak(
+                        text: message.text,
+                        messageId: message.id,
+                        rate: settingsStore.settings.speechRate,
+                        hapticsEnabled: settingsStore.settings.hapticsEnabled
+                    )
+                } label: {
+                    Label("Speak", systemImage: "speaker.wave.2")
+                }
+                if speaker.isSpeaking && speaker.currentMessageId == message.id {
+                    Button {
+                        speaker.stop()
+                    } label: {
+                        Label("Stop Speaking", systemImage: "speaker.slash")
+                    }
+                }
             }
         }
         .animation(.default, value: speaker.currentMessageId)
