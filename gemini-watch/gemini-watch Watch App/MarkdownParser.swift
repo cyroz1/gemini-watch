@@ -63,7 +63,7 @@ class MarkdownParser {
         multiSpaceRegex  = make("[ \\t]+")
     }
 
-    func parse(_ text: String) -> [ContentPart] {
+    func parse(_ text: String, isStreaming: Bool = false) -> [ContentPart] {
         if let cached = cache[text] {
             // Move to end (most recently used)
             if let index = cacheKeys.firstIndex(of: text) {
@@ -73,6 +73,9 @@ class MarkdownParser {
             return cached
         }
         let result = doParse(text)
+        // Skip writing to the cache while streaming to prevent bloat from
+        // dozens of identical-prefix partial texts. (#3)
+        guard !isStreaming else { return result }
         if cacheKeys.count >= cacheLimit {
             let oldest = cacheKeys.removeFirst()
             cache[oldest] = nil

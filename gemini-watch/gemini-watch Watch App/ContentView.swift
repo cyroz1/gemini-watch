@@ -1,14 +1,23 @@
 import SwiftUI
+import WatchKit
 
 struct ContentView: View {
-    @StateObject private var viewModel = ChatViewModel()
+    @StateObject private var viewModel: ChatViewModel
     @State private var inputText = ""
     @FocusState private var isInputFocused: Bool
-    // @State so settings refresh when the view appears (e.g. after visiting Settings)
-    @State private var settings: AppSettings = PersistenceManager.shared.loadSettings()
+
+    @EnvironmentObject private var settingsStore: AppSettingsStore
+    @EnvironmentObject private var speaker: Speaker
 
     let conversationId: UUID
     var onUpdate: (() -> Void)?
+
+    init(conversationId: UUID, onUpdate: (() -> Void)? = nil) {
+        self.conversationId = conversationId
+        self.onUpdate = onUpdate
+        // ViewModel created here; settingsStore injected after init via configure()
+        _viewModel = StateObject(wrappedValue: ChatViewModel())
+    }
 
     var body: some View {
         ZStack(alignment: .bottom) {
@@ -26,11 +35,10 @@ struct ContentView: View {
 
                                 MessageView(
                                     message: msg,
-                                    settings: settings,
                                     isStreaming: viewModel.streamingMessageId == msg.id
                                 )
                                 .onLongPressGesture {
-                                    if settings.hapticsEnabled {
+                                    if settingsStore.settings.hapticsEnabled {
                                         WKInterfaceDevice.current().play(.click)
                                     }
                                     inputText = msg.text
@@ -69,11 +77,10 @@ struct ContentView: View {
                 .onChange(of: viewModel.messages.count) {
                     guard let lastMsg = viewModel.messages.last else { return }
 
-                    if lastMsg.role == .model && settings.hapticsEnabled {
+                    if lastMsg.role == .model && settingsStore.settings.hapticsEnabled {
                         WKInterfaceDevice.current().play(.success)
                     }
 
-                    // Use DispatchQueue.main.async to reliably scroll after view updates
                     DispatchQueue.main.async {
                         withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
                             if lastMsg.role == .model {
@@ -121,9 +128,8 @@ struct ContentView: View {
             }
         }
         .onAppear {
+            viewModel.configure(settingsStore: settingsStore)
             viewModel.loadConversation(id: conversationId)
-            // Reload settings in case they changed while away
-            settings = PersistenceManager.shared.loadSettings()
         }
         .edgesIgnoringSafeArea(.bottom)
     }
@@ -151,7 +157,7 @@ struct ContentView: View {
             ForEach(viewModel.suggestions, id: \.self) { suggestion in
                 Button {
                     viewModel.sendMessage(suggestion)
-                    if settings.hapticsEnabled {
+                    if settingsStore.settings.hapticsEnabled {
                         WKInterfaceDevice.current().play(.click)
                     }
                 } label: {
@@ -198,7 +204,7 @@ struct ContentView: View {
                 .font(.system(size: 9))
                 .foregroundStyle(.red)
                 .multilineTextAlignment(.center)
-            
+
             Button("Retry") {
                 viewModel.retry()
             }
@@ -225,7 +231,7 @@ struct ContentView: View {
         } else {
             viewModel.sendMessage(inputText)
         }
-        if settings.hapticsEnabled {
+        if settingsStore.settings.hapticsEnabled {
             WKInterfaceDevice.current().play(.click)
         }
         inputText = ""

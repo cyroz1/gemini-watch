@@ -1,17 +1,25 @@
-//
-//  gemini_watchApp.swift
-//  gemini-watch Watch App
-//
-//  Created by amir on 12/12/25.
-//
-
 import SwiftUI
+import UserNotifications
 
 @main
-struct gemini_watch_Watch_AppApp: App {
+struct gemini_watchApp: App {
+    @StateObject private var settingsStore = AppSettingsStore()
+    @StateObject private var speaker = Speaker.shared
+
     var body: some Scene {
         WindowGroup {
             ConversationListView()
+                .environmentObject(settingsStore)
+                .environmentObject(speaker)
         }
+    }
+
+    init() {
+        requestNotificationPermission()
+    }
+
+    private func requestNotificationPermission() {
+        UNUserNotificationCenter.current()
+            .requestAuthorization(options: [.alert, .sound]) { _, _ in }
     }
 }

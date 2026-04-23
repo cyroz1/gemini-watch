@@ -1,13 +1,15 @@
 import Foundation
 import SwiftUI
 import Combine
+import UserNotifications
+import WatchKit
 
 @MainActor
 class ChatViewModel: ObservableObject {
 
     @Published var messages: [Message] = []
     @Published var isLoading = false
-    @Published var errorMessage: String?
+    @Published var errorMessage: String? 
     @Published var editingMessageId: UUID? = nil
     @Published var suggestions: [String] = []
     /// ID of the message currently being streamed — used to show a typing cursor.
@@ -17,10 +19,20 @@ class ChatViewModel: ObservableObject {
     private let persistence: PersistenceManager
     private var streamTask: Task<Void, Never>?
 
+    /// Injected settings store — avoids repeated disk reads on every request (#5).
+    private weak var settingsStore: AppSettingsStore?
+
     init(geminiService: GeminiService = GeminiService(),
-         persistence: PersistenceManager = PersistenceManager.shared) {
+         persistence: PersistenceManager = PersistenceManager.shared,
+         settingsStore: AppSettingsStore? = nil) {
         self.geminiService = geminiService
         self.persistence = persistence
+        self.settingsStore = settingsStore
+    }
+
+    /// Called from ContentView.onAppear after the view environment is available.
+    func configure(settingsStore: AppSettingsStore) {
+        self.settingsStore = settingsStore
     }
 
     // Debounce onUpdate so the conversation list doesn't reload on every streaming chunk
@@ -95,23 +107,20 @@ class ChatViewModel: ObservableObject {
         isLoading = true
         errorMessage = nil
 
-        let settings = persistence.loadSettings()
+        // Read from the injected store (reactive, no disk I/O) or fall back (#5)
+        let settings = settingsStore?.settings ?? persistence.loadSettings()
 
         streamTask = Task {
             var fullResponse = ""
             var messageIndex: Int? = nil
             var lastUpdate = Date()
 
-            var contextMessages = Array(messages.suffix(20))
-            if contextMessages.first?.role == .model {
-                contextMessages.removeFirst()
-            }
-
             do {
                 let stream = await geminiService.streamGenerateContent(
-                    messages: contextMessages,
+                    messages: messages,
                     model: settings.modelName,
-                    systemPrompt: settings.systemPrompt
+                    systemPrompt: settings.systemPrompt,
+                    temperature: settings.temperature
                 )
                 for try await chunk in stream {
                     if Task.isCancelled { return }
@@ -148,6 +157,9 @@ class ChatViewModel: ObservableObject {
                 isLoading = false
                 persistCurrentState()
 
+                // Schedule local notification if app is backgrounded (#15)
+                scheduleReplyNotificationIfNeeded()
+
                 if settings.suggestionsEnabled {
                     generateSuggestions()
                 }
@@ -178,6 +190,18 @@ class ChatViewModel: ObservableObject {
         }
     }
 
+    // MARK: - Local Notification (#15)
+
+    private func scheduleReplyNotificationIfNeeded() {
+        guard WKExtension.shared().applicationState != .active else { return }
+        let content = UNMutableNotificationContent()
+        content.title = "Gemini replied"
+        content.body = messages.last(where: { $0.role == .model })?.text.prefix(80).description ?? "New response ready."
+        content.sound = .default
+        let request = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)
+        UNUserNotificationCenter.current().add(request)
+    }
+
     // MARK: - Persistence
 
     func scheduleUpdate(_ onUpdate: (() -> Void)?) {
@@ -195,6 +219,7 @@ class ChatViewModel: ObservableObject {
 
         if let existing = persistence.loadConversationsMetadata().first(where: { $0.id == id }) {
             convo.createdAt = existing.createdAt
+            convo.isPinned = existing.isPinned
         }
 
         persistence.saveConversation(convo)
