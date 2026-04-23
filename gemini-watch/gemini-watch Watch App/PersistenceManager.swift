@@ -8,11 +8,7 @@ class PersistenceManager {
 
     private let settingsKey = "app_settings"
     private let defaults = UserDefaults.standard
-    private let encoder: JSONEncoder = {
-        let e = JSONEncoder()
-        e.outputFormatting = .prettyPrinted
-        return e
-    }()
+    private let encoder = JSONEncoder()
     private let decoder = JSONDecoder()
 
     private let conversationsDir: URL = {

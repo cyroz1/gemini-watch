@@ -193,7 +193,7 @@ class ChatViewModel: ObservableObject {
         convo.updatedAt = Date()
         convo.autoTitle()
 
-        if let existing = persistence.loadConversationsMetadata().first(where: { $0.id == id }) {
+        if let existing = persistence.loadConversation(id: id) {
             convo.createdAt = existing.createdAt
         }
 

@@ -53,17 +53,18 @@ actor GeminiService {
                         return
                     }
                     
+                    let decoder = JSONDecoder()
                     for try await line in bytes.lines {
                         if Task.isCancelled {
                             continuation.finish()
                             return
                         }
                         if line.hasPrefix("data: ") {
-                            let jsonString = line.replacingOccurrences(of: "data: ", with: "")
+                            let jsonString = String(line.dropFirst(6))
                             guard let data = jsonString.data(using: .utf8) else { continue }
                             
                             do {
-                                let decoded = try JSONDecoder().decode(GeminiResponse.self, from: data)
+                                let decoded = try decoder.decode(GeminiResponse.self, from: data)
                                 if let text = decoded.candidates?.first?.content.parts.first?.text {
                                     continuation.yield(text)
                                 }
