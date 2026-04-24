@@ -68,12 +68,13 @@ struct ConversationListView: View {
 
     private var emptyState: some View {
         VStack(spacing: 8) {
-            Image(systemName: "sparkles")
-                .font(.title2)
-                .foregroundStyle(.blue.opacity(0.7))
+            GeminiSpark(size: 28)
             Text("No Chats Yet")
                 .font(.caption)
                 .foregroundStyle(.secondary)
+            Text(settingsStore.settings.modelName.replacingOccurrences(of: "gemini-", with: ""))
+                .font(.system(size: 9, design: .monospaced))
+                .foregroundStyle(.tertiary)
             Button {
                 startNewChat()
             } label: {
@@ -82,6 +83,7 @@ struct ConversationListView: View {
             }
             .buttonStyle(.borderedProminent)
             .tint(.blue)
+            .padding(.top, 2)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -164,16 +166,40 @@ struct ConversationListView: View {
 // MARK: - Relative Date Formatting
 
 extension Date {
+    /// "Just now" / "3m ago" for very-recent, then clock time for earlier-today,
+    /// weekday for this week, and month/day after that. Mirrors how Google's
+    /// Gemini and Messages surfaces read.
     var relativeString: String {
         let interval = -self.timeIntervalSinceNow
-        if interval < 60     { return "Just now" }
-        if interval < 3600   { return "\(Int(interval / 60))m ago" }
-        if interval < 86400  { return "\(Int(interval / 3600))h ago" }
-        if interval < 604800 { return "\(Int(interval / 86400))d ago" }
-        return Date.relativeDateFormatter.string(from: self)
+        if interval < 60 { return "Just now" }
+        if interval < 3600 { return "\(Int(interval / 60))m ago" }
+
+        let calendar = Calendar.current
+        if calendar.isDateInToday(self) {
+            return Date.timeFormatter.string(from: self)
+        }
+        if calendar.isDateInYesterday(self) {
+            return "Yesterday"
+        }
+        if interval < 604800 {
+            return Date.weekdayFormatter.string(from: self)
+        }
+        return Date.monthDayFormatter.string(from: self)
     }
 
-    private static let relativeDateFormatter: DateFormatter = {
+    private static let timeFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.setLocalizedDateFormatFromTemplate("j:mm")
+        return f
+    }()
+
+    private static let weekdayFormatter: DateFormatter = {
+        let f = DateFormatter()
+        f.dateFormat = "EEE"
+        return f
+    }()
+
+    private static let monthDayFormatter: DateFormatter = {
         let f = DateFormatter()
         f.dateFormat = "MMM d"
         return f

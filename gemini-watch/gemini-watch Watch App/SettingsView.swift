@@ -89,6 +89,15 @@ struct SettingsView: View {
                         Text("Quick Replies")
                             .font(.caption2)
                     }
+                    Toggle(isOn: $settingsStore.settings.webSearchEnabled) {
+                        VStack(alignment: .leading, spacing: 1) {
+                            Text("Web Search")
+                                .font(.caption2)
+                            Text("Grounded answers with sources")
+                                .font(.system(size: 8))
+                                .foregroundStyle(.tertiary)
+                        }
+                    }
                 } header: {
                     Text("Features")
                         .font(.system(size: 9))

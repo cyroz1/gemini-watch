@@ -35,7 +35,10 @@ struct ContentView: View {
 
                                 MessageView(
                                     message: msg,
-                                    isStreaming: viewModel.streamingMessageId == msg.id
+                                    isStreaming: viewModel.streamingMessageId == msg.id,
+                                    onRegenerate: (msg.role == .model && msg.id == viewModel.messages.last?.id && !viewModel.isGenerating)
+                                        ? { viewModel.regenerateLast() }
+                                        : nil
                                 )
                                 .onLongPressGesture {
                                     if settingsStore.settings.hapticsEnabled {
@@ -53,12 +56,16 @@ struct ContentView: View {
 
                         // Loading indicator
                         if viewModel.isLoading {
-                            HStack {
+                            HStack(spacing: 6) {
                                 ProgressView()
-                                    .scaleEffect(0.8)
-                                    .padding(6)
+                                    .scaleEffect(0.7)
+                                Text("Thinking…")
+                                    .font(.system(size: 10))
+                                    .foregroundStyle(.secondary)
                                 Spacer()
                             }
+                            .padding(.horizontal, 6)
+                            .padding(.vertical, 4)
                             .id("loader")
                         }
 
@@ -115,15 +122,29 @@ struct ContentView: View {
                 errorBanner(error)
             }
         }
+        .animation(.easeInOut(duration: 0.2), value: viewModel.errorMessage)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
-                Button {
-                    viewModel.resetChat()
-                    onUpdate?()
-                } label: {
-                    Image(systemName: "plus.circle.fill")
-                        .font(.caption)
+                if viewModel.isGenerating {
+                    Button {
+                        viewModel.stopGeneration()
+                        if settingsStore.settings.hapticsEnabled {
+                            WKInterfaceDevice.current().play(.stop)
+                        }
+                    } label: {
+                        Image(systemName: "stop.circle.fill")
+                            .font(.caption)
+                            .foregroundStyle(.red)
+                    }
+                } else {
+                    Button {
+                        viewModel.resetChat()
+                        onUpdate?()
+                    } label: {
+                        Image(systemName: "plus.circle.fill")
+                            .font(.caption)
+                    }
                 }
             }
         }
@@ -136,16 +157,47 @@ struct ContentView: View {
 
     // MARK: - Empty State
 
+    private static let examplePrompts = [
+        "Explain a concept",
+        "Summarize this idea",
+        "Translate to Spanish",
+        "Help me decide",
+    ]
+
     private var emptyState: some View {
-        VStack(spacing: 6) {
-            Spacer().frame(height: 20)
-            Image(systemName: "sparkles")
-                .font(.title3)
-                .foregroundStyle(.blue.opacity(0.6))
+        VStack(spacing: 8) {
+            Spacer().frame(height: 14)
+            GeminiSpark(size: 22)
             Text("Ask Gemini anything")
                 .font(.caption2)
                 .foregroundStyle(.secondary)
-            Spacer().frame(height: 20)
+
+            VStack(spacing: 4) {
+                ForEach(Self.examplePrompts, id: \.self) { prompt in
+                    Button {
+                        inputText = prompt
+                        isInputFocused = true
+                        if settingsStore.settings.hapticsEnabled {
+                            WKInterfaceDevice.current().play(.click)
+                        }
+                    } label: {
+                        Text(prompt)
+                            .font(.system(size: 10, weight: .medium))
+                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .padding(.horizontal, 8)
+                            .padding(.vertical, 5)
+                            .background(
+                                RoundedRectangle(cornerRadius: 10)
+                                    .fill(Color.white.opacity(0.08))
+                            )
+                    }
+                    .buttonStyle(.plain)
+                }
+            }
+            .padding(.top, 4)
+            .padding(.horizontal, 4)
+
+            Spacer().frame(height: 14)
         }
         .frame(maxWidth: .infinity)
     }

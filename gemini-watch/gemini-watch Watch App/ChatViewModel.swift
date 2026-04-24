@@ -102,6 +102,31 @@ class ChatViewModel: ObservableObject {
         processRequest()
     }
 
+    /// Cancel an in-flight stream and surface whatever was generated so far.
+    func stopGeneration() {
+        streamTask?.cancel()
+        streamTask = nil
+        isLoading = false
+        streamingMessageId = nil
+        persistCurrentState()
+    }
+
+    /// Drop the last model response and re-request. Called from the "Regenerate"
+    /// context-menu action on a model message.
+    func regenerateLast() {
+        streamTask?.cancel()
+        if let last = messages.last, last.role == .model {
+            messages.removeLast()
+        }
+        suggestions = []
+        processRequest()
+    }
+
+    /// Whether a stream is currently producing tokens.
+    var isGenerating: Bool {
+        isLoading || streamingMessageId != nil
+    }
+
     private func processRequest() {
         streamTask?.cancel()
         isLoading = true
@@ -110,35 +135,51 @@ class ChatViewModel: ObservableObject {
         // Read from the injected store (reactive, no disk I/O) or fall back (#5)
         let settings = settingsStore?.settings ?? persistence.loadSettings()
 
+        // Subtle "request sent" cue — matches Google's own Gemini apps.
+        if settings.hapticsEnabled {
+            WKInterfaceDevice.current().play(.start)
+        }
+
         streamTask = Task {
             var fullResponse = ""
             var messageIndex: Int? = nil
             var lastUpdate = Date()
+            var latestSources: [GroundingSource] = []
 
             do {
                 let stream = await geminiService.streamGenerateContent(
                     messages: messages,
                     model: settings.modelName,
                     systemPrompt: settings.systemPrompt,
-                    temperature: settings.temperature
+                    temperature: settings.temperature,
+                    enableWebSearch: settings.webSearchEnabled
                 )
-                for try await chunk in stream {
+                for try await event in stream {
                     if Task.isCancelled { return }
-                    fullResponse += chunk
 
-                    let now = Date()
-                    if !fullResponse.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                        if messageIndex == nil || now.timeIntervalSince(lastUpdate) > 0.1 {
-                            isLoading = false
-                            if messageIndex == nil {
-                                let modelMessage = Message(role: .model, text: fullResponse)
-                                messages.append(modelMessage)
-                                messageIndex = messages.count - 1
-                                streamingMessageId = modelMessage.id
-                            } else {
-                                messages[messageIndex!].text = fullResponse
+                    switch event {
+                    case .sources(let sources):
+                        latestSources = sources
+                        if let idx = messageIndex {
+                            messages[idx].sources = sources
+                        }
+
+                    case .text(let chunk):
+                        fullResponse += chunk
+                        let now = Date()
+                        if !fullResponse.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
+                            if messageIndex == nil || now.timeIntervalSince(lastUpdate) > 0.1 {
+                                isLoading = false
+                                if messageIndex == nil {
+                                    let modelMessage = Message(role: .model, text: fullResponse, sources: latestSources.isEmpty ? nil : latestSources)
+                                    messages.append(modelMessage)
+                                    messageIndex = messages.count - 1
+                                    streamingMessageId = modelMessage.id
+                                } else {
+                                    messages[messageIndex!].text = fullResponse
+                                }
+                                lastUpdate = now
                             }
-                            lastUpdate = now
                         }
                     }
                 }
@@ -147,8 +188,11 @@ class ChatViewModel: ObservableObject {
                 if !fullResponse.isEmpty {
                     if let idx = messageIndex {
                         messages[idx].text = fullResponse
+                        if !latestSources.isEmpty {
+                            messages[idx].sources = latestSources
+                        }
                     } else {
-                        let msg = Message(role: .model, text: fullResponse)
+                        let msg = Message(role: .model, text: fullResponse, sources: latestSources.isEmpty ? nil : latestSources)
                         messages.append(msg)
                     }
                 }
