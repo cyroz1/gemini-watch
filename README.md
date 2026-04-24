@@ -40,14 +40,18 @@ If you're looking for a **native Apple Watch Gemini client**, a **lightweight LL
 ## Features
 
 - **Real-time Streaming Chat** — Tokens appear as Gemini generates them, with an animated typing cursor. Built on Server-Sent Events (SSE) from the Gemini streaming endpoint.
-- **Full Conversation History** — Every chat is saved as an individual JSON file on the watch and browsable from a scrollable list. Swipe any conversation to delete it.
+- **Full Conversation History** — Every chat is saved as an individual JSON file on the watch and browsable from a scrollable list. Swipe any conversation to delete it; pin important chats to the top.
 - **Message Editing & Regeneration** — Long-press any user message to edit it and regenerate Gemini's reply from that point.
-- **Context-Aware Quick Replies** — Smart suggestion chips appear after each response, tailored to the content (code, lists, follow-up questions, or general conversation).
+- **Web Search Grounding** — Enable Gemini's `google_search` tool from Settings to get grounded answers with inline citations and source links.
+- **Context-Aware Quick Replies** — Smart suggestion chips appear after each response, tailored to the content (code, lists, follow-up questions, or general conversation). Toggleable from Settings.
 - **Markdown & LaTeX Rendering** — Code blocks with language labels, bold and italic text, inline math (`$…$`) and block math (`$$…$$`), powered by a pre-compiled regex parser with result caching for smooth scrolling.
-- **Text-to-Speech** — Tap any Gemini response to hear it spoken aloud via `AVSpeechSynthesizer`, with configurable speech rate.
+- **Text-to-Speech** — Tap any Gemini response to hear it spoken aloud via `AVSpeechSynthesizer`, with a Slow / Normal / Fast speech-rate slider.
+- **Adjustable Creativity (Temperature)** — A Precise → Balanced → Creative → Wild slider maps directly to the Gemini `temperature` parameter (0.0–1.0), with a one-tap reset to the default.
+- **Haptic Feedback** — Optional haptics on key interactions; toggleable in Settings.
 - **Double Tap Gesture Support** — Use the watchOS Double Tap gesture (Apple Watch Series 9, 10, and Ultra 2) to open the input field instantly.
-- **Customizable System Prompt** — Edit Gemini's persona, tone, and instructions right from the in-app Settings screen.
-- **Model Picker** — Switch between available Gemini models (e.g., `gemini-2.5-flash`, `gemini-2.5-pro`) without leaving the watch.
+- **Customizable System Prompt** — Edit Gemini's persona, tone, and instructions right from the in-app Settings screen, with a reset-to-default button.
+- **Live Model Picker** — Switch between available Gemini models (e.g., `gemini-2.5-flash`, `gemini-2.5-pro`). The list is fetched live from the Gemini API and filtered to text-capable models.
+- **Clear All Chats** — One-tap bulk delete with a confirmation dialog in the Settings "Danger Zone".
 - **40mm / 41mm Optimized** — Compact typography, tight spacing, and carefully tuned tap targets designed for the smallest Apple Watch screens.
 - **100% On-Device Storage** — Conversations never leave your watch except when sent to the Gemini API itself.
 
@@ -122,13 +126,28 @@ The free tier is sufficient for personal use. Check [Google's Gemini API pricing
 
 ## Usage Guide
 
+### Chat basics
+
 - **Start a new chat** — Tap the compose button from the conversation list.
 - **Send a message** — Tap the input field, dictate or scribble, and press send.
 - **Regenerate a reply** — Long-press any of your own messages, edit, and resend.
 - **Hear a reply aloud** — Tap any Gemini message to trigger text-to-speech.
-- **Switch models** — Open **Settings → Model** and pick from the list fetched from the Gemini API.
-- **Edit the system prompt** — **Settings → System Prompt** lets you define the assistant's persona.
 - **Delete a conversation** — Swipe left on it in the conversation list.
+
+### Settings
+
+Open **Settings** from the conversation list to configure:
+
+| Setting | What it does |
+|---|---|
+| **AI Model** | Picker of Gemini models your API key can access (e.g. `gemini-2.5-flash`, `gemini-2.5-pro`). Fetched live from the API. |
+| **Speech → Speed** | Text-to-speech rate — Slow, Normal, or Fast. |
+| **Creativity** | Maps to the Gemini `temperature` parameter (0.0–1.0). Labels: Precise, Balanced, Creative, Wild. Includes a **Reset to Default** button (0.7). |
+| **Haptics** | Toggle haptic feedback on interactions. |
+| **Quick Replies** | Toggle the context-aware suggestion chips that appear after each response. |
+| **Web Search** | Toggle grounded answers with citations via Gemini's `google_search` tool. |
+| **System Prompt** | Multiline editor for the assistant's persona and instructions. Includes a **Reset to Default** button. |
+| **Clear All Chats** | Danger-zone action with a confirmation dialog — permanently deletes every saved conversation from the watch. |
 
 ---
 
@@ -196,6 +215,14 @@ Yes. Open **Settings → Model** to pick from any model your API key has access 
 ### Does it support images, voice input, or vision?
 
 The current release focuses on text chat with text-to-speech output. Voice input uses the standard watchOS dictation / Scribble input methods. Vision and multimodal support are on the roadmap.
+
+### Does Gemini Watch support web search?
+
+Yes. Flip the **Web Search** toggle in Settings to enable Gemini's `google_search` grounding tool. Responses that use web results include inline citations with source URLs.
+
+### Can I tune how creative the responses are?
+
+Yes. The **Creativity** slider in Settings maps directly to the Gemini `temperature` parameter from 0.0 (Precise) to 1.0 (Wild). Tap **Reset to Default** to return to 0.7.
 
 ### How do I back up my conversations?
 
