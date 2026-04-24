@@ -7,12 +7,25 @@ import Combine
 @MainActor
 class AppSettingsStore: ObservableObject {
     @Published var settings: AppSettings {
-        didSet {
-            PersistenceManager.shared.saveSettings(settings)
-        }
+        didSet { scheduleSave() }
     }
+
+    // Debounce disk writes — sliders emit many values per drag and we don't
+    // need to persist every intermediate tick.
+    private var saveTask: Task<Void, Never>?
 
     init() {
         settings = PersistenceManager.shared.loadSettings()
+    }
+
+    private func scheduleSave() {
+        saveTask?.cancel()
+        let snapshot = settings
+        saveTask = Task { [weak self] in
+            try? await Task.sleep(nanoseconds: 300_000_000) // 300 ms
+            guard !Task.isCancelled else { return }
+            PersistenceManager.shared.saveSettings(snapshot)
+            self?.saveTask = nil
+        }
     }
 }
