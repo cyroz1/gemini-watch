@@ -60,7 +60,11 @@ actor GeminiService {
 
                 // Build a properly alternating user↔model context (#2):
                 // Using token-aware truncation to respect context window while keeping relevant history.
-                let contextMessages = TruncationHelper.truncate(messages: messages, maxTokens: 8000)
+                let contextMessages = TruncationHelper.truncate(
+                    messages: messages, 
+                    systemPrompt: systemPrompt,
+                    maxTokens: 8000
+                )
 
                 let geminiRequest = GeminiRequest(
                     contents: contextMessages.map { message in
@@ -194,16 +198,31 @@ actor GeminiService {
 /// Helper for token-based truncation and conversation logic.
 struct TruncationHelper {
     /// Approximates token count (4 chars per token) to keep logic local and fast.
-    static func truncate(messages: [Message], maxTokens: Int) -> [Message] {
+    static func truncate(messages: [Message], systemPrompt: String, maxTokens: Int) -> [Message] {
+        // Reserve tokens for system prompt and latest user message
+        let systemTokens = systemPrompt.count / 4
+        let latestUserMessage = messages.last(where: { $0.role == .user })
+        let latestUserTokens = (latestUserMessage?.text.count ?? 0) / 4
+        
+        let reservedTokens = systemTokens + latestUserTokens
+        let remainingTokens = maxTokens - reservedTokens
+        
         var currentTokens = 0
         var truncated: [Message] = []
         
-        // Reverse to keep latest context
+        // Iterate backwards, skipping the latest user message which is already reserved
         for msg in messages.reversed() {
+            if msg.id == latestUserMessage?.id { continue }
+            
             let estimatedTokens = msg.text.count / 4
-            if currentTokens + estimatedTokens > maxTokens { break }
+            if currentTokens + estimatedTokens > remainingTokens { break }
             truncated.insert(msg, at: 0)
             currentTokens += estimatedTokens
+        }
+        
+        // Add back the latest user message at the end
+        if let latest = latestUserMessage {
+            truncated.append(latest)
         }
         
         // Ensure strict alternation and leading user role

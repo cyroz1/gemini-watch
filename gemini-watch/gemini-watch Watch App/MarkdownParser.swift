@@ -102,9 +102,32 @@ class MarkdownParser {
             return cached
         }
         
+        // During streaming, try to find the longest cached prefix to optimize parsing
+        if isStreaming {
+            let sortedKeys = cacheKeys.sorted { $0.count > $1.count }
+            if let prefix = sortedKeys.first(where: { text.hasPrefix($0) }),
+               let prefixParts = cache[prefix] {
+                
+                let remaining = String(text.dropFirst(prefix.count))
+                if !remaining.isEmpty {
+                    // For safety in markdown, if the prefix ends inside a block, we can't trivially append.
+                    // But for streaming UX, we can parse the delta and append if the prefix ends cleanly.
+                    if !prefix.contains("```") && !prefix.contains("$$") && !prefix.contains("$") {
+                        let deltaParts = doParse(remaining)
+                        let combined = prefixParts + deltaParts
+                        return combined
+                    }
+                }
+            }
+        }
+        
         let result = doParse(text)
         
-        guard !isStreaming else { return result }
+        // Cache management: Skip heavy caching for every tiny streaming chunk to avoid churn,
+        // but cache significant milestones (every 50 chars) or final results.
+        if isStreaming && text.count % 50 != 0 {
+            return result
+        }
         
         if cacheKeys.count >= cacheLimit {
             let oldest = cacheKeys.removeFirst()

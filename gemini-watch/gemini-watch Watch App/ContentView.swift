@@ -78,7 +78,7 @@ struct ContentView: View {
                         .listRowBackground(Color.clear)
                         .id("bottom_anchor")
                 }
-                .listStyle(.elliptical) // Modern watchOS list shape
+                .listStyle(.elliptical)
                 .focusable()
                 .digitalCrownRotation($scrollAmount)
                 .onChange(of: scrollAmount) {
@@ -86,26 +86,30 @@ struct ContentView: View {
                         WKInterfaceDevice.current().play(.selection)
                     }
                 }
+                // Auto-scroll on new message or streaming updates
+                .onChange(of: viewModel.messages.last?.text) {
+                    scrollToBottom(proxy: proxy)
+                }
                 .onChange(of: viewModel.messages.count) {
                     guard let lastMsg = viewModel.messages.last else { return }
 
                     if lastMsg.role == .model && settingsStore.settings.hapticsEnabled {
                         WKInterfaceDevice.current().play(.success)
                     }
-
-                    withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
-                        if lastMsg.role == .model {
-                            proxy.scrollTo(lastMsg.id, anchor: .top)
-                        } else {
-                            proxy.scrollTo("bottom_anchor", anchor: .bottom)
-                        }
-                    }
+                    scrollToBottom(proxy: proxy)
                     viewModel.scheduleUpdate(onUpdate)
                 }
             }
 
-            // MARK: - Input Bar
-            inputBar
+            // MARK: - Input Bar & Error
+            VStack(spacing: 0) {
+                if let error = viewModel.errorMessage {
+                    errorBanner(error)
+                        .transition(.move(edge: .bottom).combined(with: .opacity))
+                }
+                inputBar
+            }
+            .animation(.spring(response: 0.35, dampingFraction: 0.85), value: viewModel.errorMessage)
         }
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -127,7 +131,18 @@ struct ContentView: View {
         .edgesIgnoringSafeArea(.bottom)
     }
 
-    // MARK: - Empty State
+    private func scrollToBottom(proxy: ScrollViewProxy) {
+        guard let lastMsg = viewModel.messages.last else { return }
+        withAnimation(.spring(response: 0.4, dampingFraction: 0.8)) {
+            if lastMsg.role == .model {
+                proxy.scrollTo(lastMsg.id, anchor: .top)
+            } else {
+                proxy.scrollTo("bottom_anchor", anchor: .bottom)
+            }
+        }
+    }
+
+    // MARK: - Subviews
 
     private var emptyState: some View {
         VStack(spacing: 12) {
@@ -157,8 +172,6 @@ struct ContentView: View {
         }
     }
 
-    // MARK: - Suggestion Chips
-
     private var suggestionChips: some View {
         ScrollView(.horizontal, showsIndicators: false) {
             HStack(spacing: 8) {
@@ -180,8 +193,6 @@ struct ContentView: View {
         }
     }
 
-    // MARK: - Input Bar
-
     private var inputBar: some View {
         TextField(viewModel.editingMessageId == nil ? "Message…" : "Edit…", text: $inputText)
             .textFieldStyle(.plain)
@@ -195,6 +206,35 @@ struct ContentView: View {
             .clipShape(Capsule())
             .padding(.horizontal, 8)
             .padding(.bottom, 12)
+    }
+
+    private func errorBanner(_ error: String) -> some View {
+        HStack(spacing: 8) {
+            Image(systemName: "exclamationmark.triangle.fill")
+                .font(.system(size: 10))
+                .foregroundStyle(.red)
+            Text(error)
+                .font(.system(size: 10, weight: .medium))
+                .lineLimit(2)
+                .foregroundStyle(.primary)
+            Spacer()
+            Button {
+                viewModel.errorMessage = nil
+            } label: {
+                Image(systemName: "xmark.circle.fill")
+                    .foregroundStyle(.secondary)
+            }
+            .buttonStyle(.plain)
+        }
+        .padding(.horizontal, 12)
+        .padding(.vertical, 8)
+        .background(
+            Capsule()
+                .fill(.red.opacity(0.15))
+                .overlay(Capsule().strokeBorder(.red.opacity(0.3), lineWidth: 0.5))
+        )
+        .padding(.horizontal, 8)
+        .padding(.bottom, 4)
     }
 
     private func sendOrEdit() {
