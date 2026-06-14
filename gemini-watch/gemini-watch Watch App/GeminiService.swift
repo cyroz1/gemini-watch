@@ -59,20 +59,8 @@ actor GeminiService {
                 }
 
                 // Build a properly alternating user↔model context (#2):
-                // Strip any leading model messages, then ensure strict alternation.
-                var contextMessages = Array(messages.suffix(20))
-                while contextMessages.first?.role == .model {
-                    contextMessages.removeFirst()
-                }
-                var deduped: [Message] = []
-                for msg in contextMessages {
-                    if deduped.last?.role == msg.role {
-                        deduped[deduped.count - 1] = msg
-                    } else {
-                        deduped.append(msg)
-                    }
-                }
-                contextMessages = deduped
+                // Using token-aware truncation to respect context window while keeping relevant history.
+                let contextMessages = TruncationHelper.truncate(messages: messages, maxTokens: 8000)
 
                 let geminiRequest = GeminiRequest(
                     contents: contextMessages.map { message in
@@ -89,7 +77,12 @@ actor GeminiService {
                 request.httpMethod = "POST"
                 request.addValue("application/json", forHTTPHeaderField: "Content-Type")
                 request.addValue(key, forHTTPHeaderField: "x-goog-api-key")
-                request.timeoutInterval = 20
+                
+                // Backgrounding on watchOS: URLSessionConfiguration.background is intended for large downloads/uploads
+                // that should continue after the app is suspended. For LLM streaming (high-latency, short-burst), 
+                // .default is more appropriate as we want immediate feedback and the session is usually interactive.
+                // We increase timeout to 60s to handle cold starts or slow generation.
+                request.timeoutInterval = 60
 
                 do {
                     request.httpBody = try JSONEncoder().encode(geminiRequest)
@@ -175,7 +168,7 @@ actor GeminiService {
 
         var request = URLRequest(url: url)
         request.addValue(key, forHTTPHeaderField: "x-goog-api-key")
-        request.timeoutInterval = 10
+        request.timeoutInterval = 15
 
         let (data, response) = try await URLSession.shared.data(for: request)
 
@@ -195,6 +188,38 @@ actor GeminiService {
 
         cachedModels = models
         return models
+    }
+}
+
+/// Helper for token-based truncation and conversation logic.
+struct TruncationHelper {
+    /// Approximates token count (4 chars per token) to keep logic local and fast.
+    static func truncate(messages: [Message], maxTokens: Int) -> [Message] {
+        var currentTokens = 0
+        var truncated: [Message] = []
+        
+        // Reverse to keep latest context
+        for msg in messages.reversed() {
+            let estimatedTokens = msg.text.count / 4
+            if currentTokens + estimatedTokens > maxTokens { break }
+            truncated.insert(msg, at: 0)
+            currentTokens += estimatedTokens
+        }
+        
+        // Ensure strict alternation and leading user role
+        while truncated.first?.role == .model {
+            truncated.removeFirst()
+        }
+        
+        var deduped: [Message] = []
+        for msg in truncated {
+            if deduped.last?.role == msg.role {
+                deduped[deduped.count - 1] = msg
+            } else {
+                deduped.append(msg)
+            }
+        }
+        return deduped
     }
 }
 

@@ -1,10 +1,12 @@
 import SwiftUI
+import WatchKit
 
 struct ConversationListView: View {
     @State private var conversations: [ConversationMetadata] = []
     @State private var activeConversation: ConversationMetadata?
     @State private var showSettings = false
     @State private var searchText = ""
+    @State private var scrollAmount = 0.0
 
     @EnvironmentObject private var settingsStore: AppSettingsStore
 
@@ -36,20 +38,17 @@ struct ConversationListView: View {
                         showSettings = true
                     } label: {
                         Image(systemName: "gearshape.fill")
-                            .font(.caption)
-                            .foregroundStyle(.secondary)
                     }
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
                         startNewChat()
                     } label: {
-                        Image(systemName: "plus.circle.fill")
-                            .font(.caption)
+                        Image(systemName: "plus")
                     }
                 }
             }
-            .searchable(text: $searchText, prompt: "Search") // (#13)
+            .searchable(text: $searchText, placement: .navigationBarDrawer, prompt: "Search")
             .navigationDestination(item: $activeConversation) { metadata in
                 ContentView(conversationId: metadata.id, onUpdate: refreshList)
             }
@@ -67,23 +66,26 @@ struct ConversationListView: View {
     // MARK: - Subviews
 
     private var emptyState: some View {
-        VStack(spacing: 8) {
-            GeminiSpark(size: 28)
+        VStack(spacing: 12) {
+            GeminiSpark(size: 32)
+                .foregroundStyle(.linearGradient(colors: [.blue, .purple], startPoint: .topLeading, endPoint: .bottomTrailing))
+            
             Text("No Chats Yet")
-                .font(.caption)
+                .font(.headline)
+            
+            Text("Tap + to start a new conversation with \(settingsStore.settings.modelName.replacingOccurrences(of: "gemini-", with: ""))")
+                .font(.caption2)
                 .foregroundStyle(.secondary)
-            Text(settingsStore.settings.modelName.replacingOccurrences(of: "gemini-", with: ""))
-                .font(.system(size: 9, design: .monospaced))
-                .foregroundStyle(.tertiary)
+                .multilineTextAlignment(.center)
+                .padding(.horizontal)
+
             Button {
                 startNewChat()
             } label: {
-                Label("New Chat", systemImage: "plus")
-                    .font(.caption2)
+                Text("New Chat")
             }
             .buttonStyle(.borderedProminent)
-            .tint(.blue)
-            .padding(.top, 2)
+            .padding(.top, 8)
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
@@ -94,27 +96,33 @@ struct ConversationListView: View {
                 Button {
                     activeConversation = convo
                 } label: {
-                    HStack(spacing: 4) {
-                        if convo.isPinned {
-                            Image(systemName: "pin.fill")
-                                .font(.system(size: 8))
-                                .foregroundStyle(.yellow)
-                        }
+                    HStack(spacing: 10) {
+                        Circle()
+                            .fill(convo.isPinned ? Color.yellow : Color.blue.opacity(0.3))
+                            .frame(width: 32, height: 32)
+                            .overlay {
+                                Image(systemName: convo.isPinned ? "pin.fill" : "bubble.left.fill")
+                                    .font(.system(size: 14))
+                                    .foregroundStyle(convo.isPinned ? .black : .blue)
+                            }
+
                         VStack(alignment: .leading, spacing: 2) {
                             Text(convo.title)
                                 .font(.caption)
-                                .fontWeight(.medium)
+                                .fontWeight(.semibold)
                                 .lineLimit(1)
                             Text(convo.updatedAt.relativeString)
                                 .font(.system(size: 10))
                                 .foregroundStyle(.secondary)
                         }
-                        .frame(maxWidth: .infinity, alignment: .leading)
                     }
-                    .padding(.vertical, 2)
                 }
-                .listRowInsets(EdgeInsets(top: 4, leading: 8, bottom: 4, trailing: 8))
-                // Swipe actions: pin/unpin (#9)
+                .padding(.vertical, 4)
+                .listRowBackground(
+                    RoundedRectangle(cornerRadius: 16)
+                        .fill(.white.opacity(0.1))
+                        .padding(.vertical, 2)
+                )
                 .swipeActions(edge: .leading) {
                     Button {
                         togglePin(convo)
@@ -126,7 +134,14 @@ struct ConversationListView: View {
             }
             .onDelete(perform: deleteConversations)
         }
-        .listStyle(.plain)
+        .listStyle(.carousel) // Modern watchOS list styling
+        .focusable()
+        .digitalCrownRotation($scrollAmount)
+        .onChange(of: scrollAmount) {
+            if settingsStore.settings.hapticsEnabled {
+                WKInterfaceDevice.current().play(.selection)
+            }
+        }
     }
 
     // MARK: - Actions
@@ -161,47 +176,4 @@ struct ConversationListView: View {
         persistence.updateMetadata(updated)
         refreshList()
     }
-}
-
-// MARK: - Relative Date Formatting
-
-extension Date {
-    /// "Just now" / "3m ago" for very-recent, then clock time for earlier-today,
-    /// weekday for this week, and month/day after that. Mirrors how Google's
-    /// Gemini and Messages surfaces read.
-    var relativeString: String {
-        let interval = -self.timeIntervalSinceNow
-        if interval < 60 { return "Just now" }
-        if interval < 3600 { return "\(Int(interval / 60))m ago" }
-
-        let calendar = Calendar.current
-        if calendar.isDateInToday(self) {
-            return Date.timeFormatter.string(from: self)
-        }
-        if calendar.isDateInYesterday(self) {
-            return "Yesterday"
-        }
-        if interval < 604800 {
-            return Date.weekdayFormatter.string(from: self)
-        }
-        return Date.monthDayFormatter.string(from: self)
-    }
-
-    private static let timeFormatter: DateFormatter = {
-        let f = DateFormatter()
-        f.setLocalizedDateFormatFromTemplate("j:mm")
-        return f
-    }()
-
-    private static let weekdayFormatter: DateFormatter = {
-        let f = DateFormatter()
-        f.dateFormat = "EEE"
-        return f
-    }()
-
-    private static let monthDayFormatter: DateFormatter = {
-        let f = DateFormatter()
-        f.dateFormat = "MMM d"
-        return f
-    }()
 }
