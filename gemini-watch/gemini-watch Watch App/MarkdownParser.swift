@@ -7,22 +7,53 @@ enum PartType: Equatable, Hashable {
     case inlineMath
 }
 
-struct ContentPart: Equatable, Hashable {
+struct ContentPart: Equatable, Hashable, Codable {
     let text: String
     let type: PartType
+}
+
+// Codable support for PartType
+extension PartType: Codable {
+    private enum CodingKeys: String, CodingKey {
+        case base, language
+    }
+    init(from decoder: Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        let base = try container.decode(String.self, forKey: .base)
+        switch base {
+        case "text": self = .text
+        case "code":
+            let lang = try container.decodeIfPresent(String.self, forKey: .language)
+            self = .code(language: lang)
+        case "blockMath": self = .blockMath
+        case "inlineMath": self = .inlineMath
+        default: throw DecodingError.dataCorruptedError(forKey: .base, in: container, debugDescription: "Unknown type")
+        }
+    }
+    func encode(to encoder: Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        switch self {
+        case .text: try container.encode("text", forKey: .base)
+        case .code(let lang):
+            try container.encode("code", forKey: .base)
+            try container.encode(lang, forKey: .language)
+        case .blockMath: try container.encode("blockMath", forKey: .base)
+        case .inlineMath: try container.encode("inlineMath", forKey: .base)
+        }
+    }
 }
 
 class MarkdownParser {
     static let shared = MarkdownParser()
 
-    // MARK: - Pre-compiled Regexes (compiled once at init)
+    // MARK: - Pre-compiled Regexes
     private let codeRegex: NSRegularExpression
     private let blockMathRegex: NSRegularExpression
     private let inlineMathRegex: NSRegularExpression
     private let listMarkerRegex: NSRegularExpression
     private let whitespaceRegex: NSRegularExpression
 
-    // Math-formatting regexes (also pre-compiled)
+    // Math-formatting regexes
     private let fracRegex: NSRegularExpression
     private let sqrtNRegex: NSRegularExpression
     private let sqrtRegex: NSRegularExpression
@@ -35,14 +66,13 @@ class MarkdownParser {
     private let unknownCmdRegex: NSRegularExpression
     private let multiSpaceRegex: NSRegularExpression
 
-    // MARK: - Parse result cache (keyed by message text)
+    // MARK: - Parse result cache
     private var cache: [String: [ContentPart]] = [:]
-    private var cacheKeys: [String] = [] // Tracks recency
+    private var cacheKeys: [String] = []
     private let cacheLimit = 100
 
     private init() {
         func make(_ pattern: String, _ opts: NSRegularExpression.Options = []) -> NSRegularExpression {
-            // Patterns are compile-time constants — safe to force-unwrap
             return try! NSRegularExpression(pattern: pattern, options: opts)
         }
         codeRegex        = make("```(?:([^\\n]*?)\\n)?([\\s\\S]*?)```")
@@ -65,17 +95,17 @@ class MarkdownParser {
 
     func parse(_ text: String, isStreaming: Bool = false) -> [ContentPart] {
         if let cached = cache[text] {
-            // Move to end (most recently used)
             if let index = cacheKeys.firstIndex(of: text) {
                 cacheKeys.remove(at: index)
                 cacheKeys.append(text)
             }
             return cached
         }
+        
         let result = doParse(text)
-        // Skip writing to the cache while streaming to prevent bloat from
-        // dozens of identical-prefix partial texts. (#3)
+        
         guard !isStreaming else { return result }
+        
         if cacheKeys.count >= cacheLimit {
             let oldest = cacheKeys.removeFirst()
             cache[oldest] = nil
@@ -89,32 +119,26 @@ class MarkdownParser {
         var parts: [ContentPart] = []
         let fullRange = NSRange(text.startIndex..<text.endIndex, in: text)
 
-        // 1. Extract Code Blocks
         var codeMatches: [(range: NSRange, part: ContentPart)] = []
         codeRegex.enumerateMatches(in: text, options: [], range: fullRange) { match, _, _ in
             guard let match = match, match.range.location != NSNotFound else { return }
-
             let languageRange = match.range(at: 1)
             let contentRange  = match.range(at: 2)
-
             var language: String? = nil
             if languageRange.location != NSNotFound, let r = Range(languageRange, in: text) {
                 let lang = String(text[r]).trimmingCharacters(in: .whitespacesAndNewlines)
                 if !lang.isEmpty { language = lang }
             }
-
             if contentRange.location != NSNotFound, let r = Range(contentRange, in: text) {
                 codeMatches.append((match.range, ContentPart(text: String(text[r]), type: .code(language: language))))
             }
         }
 
-        // 2. Extract Math
         func isInsideCode(_ range: NSRange) -> Bool {
             codeMatches.contains { NSIntersectionRange(range, $0.range).length > 0 }
         }
 
         var mathMatches: [(range: NSRange, part: ContentPart)] = []
-
         blockMathRegex.enumerateMatches(in: text, options: [], range: fullRange) { match, _, _ in
             guard let match = match, !isInsideCode(match.range) else { return }
             if let r = Range(match.range(at: 1), in: text) {
@@ -132,7 +156,6 @@ class MarkdownParser {
             }
         }
 
-        // 3. Assemble parts
         var allSpecial = codeMatches + mathMatches
         allSpecial.sort { $0.range.location < $1.range.location }
 
@@ -154,8 +177,6 @@ class MarkdownParser {
 
         return parts
     }
-
-    // MARK: - LaTeX → Readable Unicode
 
     private func formatMath(_ latex: String) -> String {
         var s = latex
@@ -216,8 +237,6 @@ class MarkdownParser {
         let range = NSRange(input.startIndex..<input.endIndex, in: input)
         return regex.stringByReplacingMatches(in: input, options: [], range: range, withTemplate: template)
     }
-
-    // MARK: - Plain Text Formatting
 
     private func formatText(_ text: String) -> String {
         let range = NSRange(text.startIndex..<text.endIndex, in: text)

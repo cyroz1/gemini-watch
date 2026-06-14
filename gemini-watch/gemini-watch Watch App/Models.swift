@@ -21,6 +21,22 @@ struct Message: Identifiable, Codable, Equatable, Hashable {
     /// Optional so older persisted messages (without the field) still decode.
     var sources: [GroundingSource]?
 
+    // Pre-parsed markdown parts for high-performance rendering in SwiftUI
+    private var _cachedParts: [ContentPart]? = nil
+    var parts: [ContentPart] {
+        if let cached = _cachedParts { return cached }
+        return MarkdownParser.shared.parse(text)
+    }
+
+    mutating func updateText(_ newText: String, isStreaming: Bool = false) {
+        self.text = newText
+        self._cachedParts = MarkdownParser.shared.parse(newText, isStreaming: isStreaming)
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case id, role, text, createdAt, sources
+    }
+
     init(id: UUID = UUID(),
          role: MessageRole,
          text: String,
@@ -31,6 +47,7 @@ struct Message: Identifiable, Codable, Equatable, Hashable {
         self.text = text
         self.createdAt = createdAt
         self.sources = sources
+        self._cachedParts = MarkdownParser.shared.parse(text)
     }
 }
 

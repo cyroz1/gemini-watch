@@ -30,12 +30,10 @@ class ChatViewModel: ObservableObject {
         self.settingsStore = settingsStore
     }
 
-    /// Called from ContentView.onAppear after the view environment is available.
     func configure(settingsStore: AppSettingsStore) {
         self.settingsStore = settingsStore
     }
 
-    // Debounce onUpdate so the conversation list doesn't reload on every streaming chunk
     private var updateWorkItem: DispatchWorkItem?
 
     var conversationId: UUID?
@@ -84,7 +82,7 @@ class ChatViewModel: ObservableObject {
 
     func editMessage(id: UUID, newText: String) {
         guard let index = messages.firstIndex(where: { $0.id == id }) else { return }
-        messages[index].text = newText
+        messages[index].updateText(newText)
 
         if index + 1 < messages.count && messages[index + 1].role == .model {
             messages.remove(at: index + 1)
@@ -102,7 +100,6 @@ class ChatViewModel: ObservableObject {
         processRequest()
     }
 
-    /// Cancel an in-flight stream and surface whatever was generated so far.
     func stopGeneration() {
         streamTask?.cancel()
         streamTask = nil
@@ -111,8 +108,6 @@ class ChatViewModel: ObservableObject {
         persistCurrentState()
     }
 
-    /// Drop the last model response and re-request. Called from the "Regenerate"
-    /// context-menu action on a model message.
     func regenerateLast() {
         streamTask?.cancel()
         if let last = messages.last, last.role == .model {
@@ -122,7 +117,6 @@ class ChatViewModel: ObservableObject {
         processRequest()
     }
 
-    /// Whether a stream is currently producing tokens.
     var isGenerating: Bool {
         isLoading || streamingMessageId != nil
     }
@@ -132,10 +126,8 @@ class ChatViewModel: ObservableObject {
         isLoading = true
         errorMessage = nil
 
-        // Read from the injected store (reactive, no disk I/O) or fall back (#5)
         let settings = settingsStore?.settings ?? persistence.loadSettings()
 
-        // Subtle "request sent" cue — matches Google's own Gemini apps.
         if settings.hapticsEnabled {
             WKInterfaceDevice.current().play(.start)
         }
@@ -168,15 +160,21 @@ class ChatViewModel: ObservableObject {
                         fullResponse += chunk
                         let now = Date()
                         if !fullResponse.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
-                            if messageIndex == nil || now.timeIntervalSince(lastUpdate) > 0.1 {
+                            // Performance: Throttled updates to 5Hz (0.2s) to reduce SwiftUI layout pressure
+                            if messageIndex == nil || now.timeIntervalSince(lastUpdate) > 0.2 {
                                 isLoading = false
                                 if messageIndex == nil {
                                     let modelMessage = Message(role: .model, text: fullResponse, sources: latestSources.isEmpty ? nil : latestSources)
                                     messages.append(modelMessage)
                                     messageIndex = messages.count - 1
                                     streamingMessageId = modelMessage.id
+                                    
+                                    // Tactical feedback when first token arrives
+                                    if settings.hapticsEnabled {
+                                        WKInterfaceDevice.current().play(.directionUp)
+                                    }
                                 } else {
-                                    messages[messageIndex!].text = fullResponse
+                                    messages[messageIndex!].updateText(fullResponse, isStreaming: true)
                                 }
                                 lastUpdate = now
                             }
@@ -184,10 +182,9 @@ class ChatViewModel: ObservableObject {
                     }
                 }
 
-                // Final update
                 if !fullResponse.isEmpty {
                     if let idx = messageIndex {
-                        messages[idx].text = fullResponse
+                        messages[idx].updateText(fullResponse)
                         if !latestSources.isEmpty {
                             messages[idx].sources = latestSources
                         }
@@ -201,7 +198,6 @@ class ChatViewModel: ObservableObject {
                 isLoading = false
                 persistCurrentState()
 
-                // Schedule local notification if app is backgrounded (#15)
                 scheduleReplyNotificationIfNeeded()
 
                 if settings.suggestionsEnabled {
@@ -234,8 +230,6 @@ class ChatViewModel: ObservableObject {
         }
     }
 
-    // MARK: - Local Notification (#15)
-
     private func scheduleReplyNotificationIfNeeded() {
         guard WKExtension.shared().applicationState != .active else { return }
         let content = UNMutableNotificationContent()
@@ -245,8 +239,6 @@ class ChatViewModel: ObservableObject {
         let request = UNNotificationRequest(identifier: UUID().uuidString, content: content, trigger: nil)
         UNUserNotificationCenter.current().add(request)
     }
-
-    // MARK: - Persistence
 
     func scheduleUpdate(_ onUpdate: (() -> Void)?) {
         updateWorkItem?.cancel()

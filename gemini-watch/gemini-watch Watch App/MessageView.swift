@@ -5,7 +5,6 @@ struct MessageView: View {
     let isStreaming: Bool
     let onRegenerate: (() -> Void)?
 
-    /// Injected via environment — not a direct singleton reference (#18)
     @EnvironmentObject private var speaker: Speaker
     @EnvironmentObject private var settingsStore: AppSettingsStore
 
@@ -19,8 +18,8 @@ struct MessageView: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
-            // MARK: - Markdown Content
-            let parts = MarkdownParser.shared.parse(message.text, isStreaming: isStreaming)
+            // Performance: Use pre-parsed parts from the message model
+            let parts = message.parts
 
             ForEach(Array(parts.enumerated()), id: \.offset) { _, part in
                 switch part.type {
@@ -63,13 +62,11 @@ struct MessageView: View {
                 }
             }
 
-            // MARK: - Streaming Cursor
             if isStreaming {
                 StreamingDots()
                     .padding(.top, 2)
             }
 
-            // MARK: - TTS Indicator
             if message.role == .model && speaker.currentMessageId == message.id && speaker.isSpeaking {
                 HStack(spacing: 3) {
                     Image(systemName: "waveform")
@@ -82,7 +79,6 @@ struct MessageView: View {
                 .padding(.top, 2)
             }
 
-            // MARK: - Sources (web-search grounding)
             if let sources = message.sources, !sources.isEmpty {
                 Button {
                     showSources = true
@@ -104,7 +100,6 @@ struct MessageView: View {
                 .padding(.top, 2)
             }
 
-            // MARK: - Timestamp (#14)
             Text(message.createdAt.relativeString)
                 .font(.system(size: 8))
                 .foregroundStyle(.tertiary)
@@ -119,7 +114,6 @@ struct MessageView: View {
             RoundedRectangle(cornerRadius: 10)
                 .fill(message.role == .user ? Color.blue.opacity(0.3) : Color.gray.opacity(0.15))
         )
-        // Tap to speak (#18 — reads settings from environment)
         .onTapGesture {
             if message.role == .model {
                 speaker.speak(
@@ -130,7 +124,6 @@ struct MessageView: View {
                 )
             }
         }
-        // Context menu: Speak shortcut (#11 — no clipboard on watchOS, so Speak is the most useful action)
         .contextMenu {
             if message.role == .model {
                 Button {
@@ -163,8 +156,6 @@ struct MessageView: View {
     }
 }
 
-// MARK: - Sources Sheet
-
 private struct SourcesSheet: View {
     let sources: [GroundingSource]
     @Environment(\.dismiss) private var dismiss
@@ -173,7 +164,6 @@ private struct SourcesSheet: View {
         NavigationStack {
             List {
                 ForEach(sources) { source in
-                    // `Link` on watchOS hands off to the paired iPhone.
                     if let url = URL(string: source.uri) {
                         Link(destination: url) {
                             VStack(alignment: .leading, spacing: 2) {
@@ -200,8 +190,6 @@ private struct SourcesSheet: View {
         URL(string: uri)?.host?.replacingOccurrences(of: "www.", with: "") ?? uri
     }
 }
-
-// MARK: - Streaming Dots
 
 private struct StreamingDots: View {
     var body: some View {
