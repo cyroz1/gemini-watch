@@ -8,6 +8,7 @@ struct ContentView: View {
 
     @EnvironmentObject private var settingsStore: AppSettingsStore
     @EnvironmentObject private var speaker: Speaker
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     let conversationId: UUID
     var onUpdate: (() -> Void)?
@@ -41,6 +42,7 @@ struct ContentView: View {
                                         : nil
                                 )
                                 .onLongPressGesture {
+                                    guard msg.role == .user else { return }
                                     if settingsStore.settings.hapticsEnabled {
                                         WKInterfaceDevice.current().play(.click)
                                     }
@@ -84,16 +86,19 @@ struct ContentView: View {
                 .onChange(of: viewModel.messages.count) {
                     guard let lastMsg = viewModel.messages.last else { return }
 
-                    if lastMsg.role == .model && settingsStore.settings.hapticsEnabled {
-                        WKInterfaceDevice.current().play(.success)
-                    }
-
                     DispatchQueue.main.async {
-                        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                        let scroll = {
                             if lastMsg.role == .model {
                                 proxy.scrollTo(lastMsg.id, anchor: .top)
                             } else {
                                 proxy.scrollTo("bottom_anchor", anchor: .bottom)
+                            }
+                        }
+                        if reduceMotion {
+                            scroll()
+                        } else {
+                            withAnimation(.spring(response: 0.3, dampingFraction: 1.0)) {
+                                scroll()
                             }
                         }
                     }
@@ -103,11 +108,18 @@ struct ContentView: View {
                 .onChange(of: viewModel.suggestions) {
                     guard !viewModel.suggestions.isEmpty else { return }
                     DispatchQueue.main.async {
-                        withAnimation(.spring(response: 0.3, dampingFraction: 0.8)) {
+                        let scroll = {
                             if let lastMsg = viewModel.messages.last, lastMsg.role == .model {
                                 proxy.scrollTo(lastMsg.id, anchor: .top)
                             } else {
                                 proxy.scrollTo("bottom_anchor", anchor: .bottom)
+                            }
+                        }
+                        if reduceMotion {
+                            scroll()
+                        } else {
+                            withAnimation(.spring(response: 0.3, dampingFraction: 1.0)) {
+                                scroll()
                             }
                         }
                     }
@@ -122,7 +134,7 @@ struct ContentView: View {
                 errorBanner(error)
             }
         }
-        .animation(.easeInOut(duration: 0.2), value: viewModel.errorMessage)
+        .animation(reduceMotion ? nil : .easeInOut(duration: 0.2), value: viewModel.errorMessage)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
@@ -137,6 +149,7 @@ struct ContentView: View {
                             .font(.caption)
                             .foregroundStyle(.red)
                     }
+                    .accessibilityLabel("Stop generating")
                 } else {
                     Button {
                         viewModel.resetChat()
@@ -145,6 +158,7 @@ struct ContentView: View {
                         Image(systemName: "plus.circle.fill")
                             .font(.caption)
                     }
+                    .accessibilityLabel("New chat")
                 }
             }
         }
@@ -152,7 +166,7 @@ struct ContentView: View {
             viewModel.configure(settingsStore: settingsStore)
             viewModel.loadConversation(id: conversationId)
         }
-        .edgesIgnoringSafeArea(.bottom)
+        .ignoresSafeArea(edges: .bottom)
     }
 
     // MARK: - Empty State
@@ -277,11 +291,13 @@ struct ContentView: View {
     // MARK: - Actions
 
     private func sendOrEdit() {
+        let trimmedText = inputText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedText.isEmpty else { return }
         if let id = viewModel.editingMessageId {
-            viewModel.editMessage(id: id, newText: inputText)
+            viewModel.editMessage(id: id, newText: trimmedText)
             viewModel.editingMessageId = nil
         } else {
-            viewModel.sendMessage(inputText)
+            viewModel.sendMessage(trimmedText)
         }
         if settingsStore.settings.hapticsEnabled {
             WKInterfaceDevice.current().play(.click)

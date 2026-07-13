@@ -74,8 +74,9 @@ class ChatViewModel: ObservableObject {
     // MARK: - Messaging
 
     func sendMessage(_ text: String) {
-        guard !text.isEmpty else { return }
-        let userMessage = Message(role: .user, text: text)
+        let trimmedText = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedText.isEmpty else { return }
+        let userMessage = Message(role: .user, text: trimmedText)
         messages.append(userMessage)
         suggestions = []
         persistCurrentState()
@@ -83,11 +84,16 @@ class ChatViewModel: ObservableObject {
     }
 
     func editMessage(id: UUID, newText: String) {
-        guard let index = messages.firstIndex(where: { $0.id == id }) else { return }
-        messages[index].text = newText
+        let trimmedText = newText.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmedText.isEmpty,
+              let index = messages.firstIndex(where: { $0.id == id }),
+              messages[index].role == .user else { return }
+        messages[index].text = trimmedText
 
-        if index + 1 < messages.count && messages[index + 1].role == .model {
-            messages.remove(at: index + 1)
+        // Editing rewinds the conversation to that point. Keeping later turns
+        // would attach replies generated from the old prompt to the new branch.
+        if index + 1 < messages.count {
+            messages.removeSubrange((index + 1)..<messages.endIndex)
         }
 
         suggestions = []
@@ -99,6 +105,11 @@ class ChatViewModel: ObservableObject {
     // MARK: - Streaming
 
     func retry() {
+        // A failed stream may have left a partial model response. Remove it so
+        // Gemini receives a conversation ending in the user's prompt.
+        if messages.last?.role == .model {
+            messages.removeLast()
+        }
         processRequest()
     }
 
@@ -201,11 +212,20 @@ class ChatViewModel: ObservableObject {
                 isLoading = false
                 persistCurrentState()
 
-                // Schedule local notification if app is backgrounded (#15)
-                scheduleReplyNotificationIfNeeded()
+                if fullResponse.isEmpty {
+                    errorMessage = "No response. Try again."
+                } else {
+                    if settings.hapticsEnabled,
+                       WKExtension.shared().applicationState == .active {
+                        WKInterfaceDevice.current().play(.success)
+                    }
 
-                if settings.suggestionsEnabled {
-                    generateSuggestions()
+                    // Schedule local notification if app is backgrounded (#15)
+                    scheduleReplyNotificationIfNeeded()
+
+                    if settings.suggestionsEnabled {
+                        generateSuggestions()
+                    }
                 }
             } catch {
                 streamingMessageId = nil

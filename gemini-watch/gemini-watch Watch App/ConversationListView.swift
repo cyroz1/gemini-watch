@@ -12,12 +12,8 @@ struct ConversationListView: View {
     private let geminiService = GeminiService()
 
     var filteredConversations: [ConversationMetadata] {
-        let sorted = conversations.sorted {
-            if $0.isPinned != $1.isPinned { return $0.isPinned }
-            return $0.updatedAt > $1.updatedAt
-        }
-        guard !searchText.isEmpty else { return sorted }
-        return sorted.filter { $0.title.localizedCaseInsensitiveContains(searchText) }
+        guard !searchText.isEmpty else { return conversations }
+        return conversations.filter { $0.title.localizedCaseInsensitiveContains(searchText) }
     }
 
     var body: some View {
@@ -25,6 +21,8 @@ struct ConversationListView: View {
             Group {
                 if conversations.isEmpty {
                     emptyState
+                } else if filteredConversations.isEmpty {
+                    searchEmptyState
                 } else {
                     conversationList
                 }
@@ -39,6 +37,7 @@ struct ConversationListView: View {
                             .font(.caption)
                             .foregroundStyle(.secondary)
                     }
+                    .accessibilityLabel("Settings")
                 }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button {
@@ -47,6 +46,7 @@ struct ConversationListView: View {
                         Image(systemName: "plus.circle.fill")
                             .font(.caption)
                     }
+                    .accessibilityLabel("New chat")
                 }
             }
             .searchable(text: $searchText, prompt: "Search") // (#13)
@@ -129,6 +129,21 @@ struct ConversationListView: View {
         .listStyle(.plain)
     }
 
+    private var searchEmptyState: some View {
+        VStack(spacing: 6) {
+            Image(systemName: "magnifyingglass")
+                .font(.title3)
+                .foregroundStyle(.secondary)
+            Text("No Matches")
+                .font(.caption)
+                .fontWeight(.semibold)
+            Text("Try another search")
+                .font(.caption2)
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
     // MARK: - Actions
 
     private func startNewChat() {
@@ -145,7 +160,10 @@ struct ConversationListView: View {
     }
 
     private func refreshList() {
-        conversations = persistence.loadConversationsMetadata()
+        conversations = persistence.loadConversationsMetadata().sorted {
+            if $0.isPinned != $1.isPinned { return $0.isPinned }
+            return $0.updatedAt > $1.updatedAt
+        }
     }
 
     private func deleteConversations(at offsets: IndexSet) {

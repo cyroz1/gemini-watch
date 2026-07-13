@@ -8,6 +8,7 @@ struct MessageView: View {
     /// Injected via environment — not a direct singleton reference (#18)
     @EnvironmentObject private var speaker: Speaker
     @EnvironmentObject private var settingsStore: AppSettingsStore
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     @State private var showSources = false
 
@@ -20,52 +21,61 @@ struct MessageView: View {
     var body: some View {
         VStack(alignment: .leading, spacing: 3) {
             // MARK: - Markdown Content
-            let parts = MarkdownParser.shared.parse(message.text, isStreaming: isStreaming)
+            if isStreaming {
+                // Rich parsing is intentionally deferred until the response is
+                // complete. Re-running every regex for every token is costly on
+                // watch hardware and can make long responses stutter.
+                Text(message.text)
+                    .font(.system(size: 12))
+            } else {
+                let parts = MarkdownParser.shared.parse(message.text)
 
-            ForEach(Array(parts.enumerated()), id: \.offset) { _, part in
-                switch part.type {
-                case .code(let language):
-                    VStack(alignment: .leading, spacing: 0) {
-                        if let language = language, !language.isEmpty {
-                            Text(language.uppercased())
-                                .font(.system(size: 7, weight: .bold, design: .monospaced))
-                                .foregroundStyle(.secondary)
-                                .padding(.bottom, 1)
+                ForEach(parts.indices, id: \.self) { index in
+                    let part = parts[index]
+                    switch part.type {
+                    case .code(let language):
+                        VStack(alignment: .leading, spacing: 0) {
+                            if let language = language, !language.isEmpty {
+                                Text(language.uppercased())
+                                    .font(.system(size: 7, weight: .bold, design: .monospaced))
+                                    .foregroundStyle(.secondary)
+                                    .padding(.bottom, 1)
+                            }
+                            Text(part.text)
+                                .font(.system(size: 9, design: .monospaced))
+                                .frame(maxWidth: .infinity, alignment: .leading)
                         }
+                        .padding(5)
+                        .background(Color.black.opacity(0.5))
+                        .cornerRadius(5)
+
+                    case .blockMath:
                         Text(part.text)
-                            .font(.system(size: 9, design: .monospaced))
-                            .frame(maxWidth: .infinity, alignment: .leading)
+                            .font(.system(size: 10, design: .serif))
+                            .italic()
+                            .padding(3)
+                            .frame(maxWidth: .infinity, alignment: .center)
+                            .background(Color.white.opacity(0.1))
+                            .cornerRadius(4)
+
+                    case .inlineMath:
+                        Text(part.text)
+                            .font(.system(size: 10, design: .serif))
+                            .italic()
+                            .padding(.horizontal, 2)
+                            .background(Color.white.opacity(0.05))
+                            .cornerRadius(2)
+
+                    case .text:
+                        Text(LocalizedStringKey(part.text))
+                            .font(.system(size: 12))
                     }
-                    .padding(5)
-                    .background(Color.black.opacity(0.5))
-                    .cornerRadius(5)
-
-                case .blockMath:
-                    Text(part.text)
-                        .font(.system(size: 10, design: .serif))
-                        .italic()
-                        .padding(3)
-                        .frame(maxWidth: .infinity, alignment: .center)
-                        .background(Color.white.opacity(0.1))
-                        .cornerRadius(4)
-
-                case .inlineMath:
-                    Text(part.text)
-                        .font(.system(size: 10, design: .serif))
-                        .italic()
-                        .padding(.horizontal, 2)
-                        .background(Color.white.opacity(0.05))
-                        .cornerRadius(2)
-
-                case .text:
-                    Text(LocalizedStringKey(part.text))
-                        .font(.system(size: 12))
                 }
             }
 
             // MARK: - Streaming Cursor
             if isStreaming {
-                StreamingDots()
+                StreamingDots(reduceMotion: reduceMotion)
                     .padding(.top, 2)
             }
 
@@ -159,7 +169,7 @@ struct MessageView: View {
                 }
             }
         }
-        .animation(.default, value: speaker.currentMessageId)
+        .animation(reduceMotion ? nil : .easeOut(duration: 0.16), value: speaker.currentMessageId)
     }
 }
 
@@ -204,15 +214,33 @@ private struct SourcesSheet: View {
 // MARK: - Streaming Dots
 
 private struct StreamingDots: View {
+    let reduceMotion: Bool
+
+    @ViewBuilder
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 15.0)) { context in
-            let t = context.date.timeIntervalSinceReferenceDate
+        if reduceMotion {
             HStack(spacing: 3) {
-                dot(phase: t)
-                dot(phase: t - 0.2)
-                dot(phase: t - 0.4)
+                staticDot(opacity: 0.35)
+                staticDot(opacity: 0.6)
+                staticDot(opacity: 0.85)
+            }
+        } else {
+            TimelineView(.animation(minimumInterval: 1.0 / 12.0)) { context in
+                let t = context.date.timeIntervalSinceReferenceDate
+                HStack(spacing: 3) {
+                    dot(phase: t)
+                    dot(phase: t - 0.2)
+                    dot(phase: t - 0.4)
+                }
             }
         }
+    }
+
+    private func staticDot(opacity: Double) -> some View {
+        Circle()
+            .fill(GeminiBrand.gradient)
+            .frame(width: 5, height: 5)
+            .opacity(opacity)
     }
 
     private func dot(phase: TimeInterval) -> some View {

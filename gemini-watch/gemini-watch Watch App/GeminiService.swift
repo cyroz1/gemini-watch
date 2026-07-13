@@ -46,7 +46,7 @@ actor GeminiService {
         enableWebSearch: Bool = false
     ) -> AsyncThrowingStream<StreamEvent, Error> {
         return AsyncThrowingStream { continuation in
-            Task {
+            let requestTask = Task {
                 guard let key = apiKey else {
                     continuation.finish(throwing: GeminiError.missingAPIKey)
                     return
@@ -118,7 +118,7 @@ actor GeminiService {
                             return
                         }
                         guard line.hasPrefix("data: ") else { continue }
-                        let jsonString = line.replacingOccurrences(of: "data: ", with: "")
+                        let jsonString = String(line.dropFirst(6))
                         guard let data = jsonString.data(using: .utf8) else { continue }
 
                         do {
@@ -155,6 +155,13 @@ actor GeminiService {
                         continuation.finish()
                     }
                 }
+            }
+
+            // Cancelling the consumer (for example, tapping Stop) must also
+            // cancel URLSession work so the watch does not keep using radio,
+            // CPU, and battery for a response nobody is reading.
+            continuation.onTermination = { @Sendable _ in
+                requestTask.cancel()
             }
         }
     }
