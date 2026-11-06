@@ -29,7 +29,10 @@ actor GeminiService {
         if let filePath = Bundle.main.path(forResource: "Secrets", ofType: "plist"),
            let plist = NSDictionary(contentsOfFile: filePath),
            let value = plist.object(forKey: "GEMINI_API_KEY") as? String,
-           !value.isEmpty {
+           !value.isEmpty,
+           // An unedited copy of Secrets.plist.example takes the clear
+           // missing-key path instead of failing later with a network 401.
+           value != "YOUR_API_KEY_HERE" {
             apiKey = value
         } else {
             apiKey = nil
@@ -52,8 +55,22 @@ actor GeminiService {
                     return
                 }
 
+                // The model name reaches here from persisted settings or
+                // the remote model list, so treat it as untrusted input:
+                // allow only the characters real Gemini model names use
+                // (which are all URL-path-safe, so no encoding ambiguity),
+                // then verify the constructed URL still has exactly the
+                // intended path shape before the API key is attached.
+                let modelCharacters = CharacterSet(charactersIn: "abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-._")
+                guard !model.isEmpty,
+                      model.unicodeScalars.allSatisfy(modelCharacters.contains) else {
+                    continuation.finish(throwing: GeminiError.badURL)
+                    return
+                }
+
                 let urlString = "\(baseURL)\(model):streamGenerateContent?alt=sse"
-                guard let url = URL(string: urlString) else {
+                guard let url = URL(string: urlString),
+                      url.path == "/v1beta/models/\(model):streamGenerateContent" else {
                     continuation.finish(throwing: GeminiError.badURL)
                     return
                 }
@@ -197,7 +214,9 @@ actor GeminiService {
                 model.name.hasPrefix("models/gemini-") &&
                 model.supportedGenerationMethods?.contains("generateContent") == true
             }
-            .map { $0.name.replacingOccurrences(of: "models/", with: "") }
+            // The filter above guarantees the "models/" prefix; strip
+            // exactly that one prefix instead of every "models/" occurrence.
+            .map { String($0.name.dropFirst("models/".count)) }
             .sorted()
 
         cachedModels = models
