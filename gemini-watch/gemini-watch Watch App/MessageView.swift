@@ -67,7 +67,12 @@ struct MessageView: View {
                             .cornerRadius(2)
 
                     case .text:
-                        Text(LocalizedStringKey(part.text))
+                        // Verbatim String initializer, matching every sibling
+                        // branch: model prose is untrusted remote content and
+                        // must never reach the markup-interpreting
+                        // LocalizedStringKey initializer, where markdown link
+                        // syntax could become styled or tappable content.
+                        Text(part.text)
                             .font(.system(size: 12))
                     }
                 }
@@ -184,7 +189,11 @@ private struct SourcesSheet: View {
             List {
                 ForEach(sources) { source in
                     // `Link` on watchOS hands off to the paired iPhone.
-                    if let url = URL(string: source.uri) {
+                    // Grounding URIs are model-supplied, so only offer the
+                    // hand-off for http(s) destinations.
+                    if let url = URL(string: source.uri),
+                       let scheme = url.scheme?.lowercased(),
+                       scheme == "http" || scheme == "https" {
                         Link(destination: url) {
                             VStack(alignment: .leading, spacing: 2) {
                                 Text(source.title)
