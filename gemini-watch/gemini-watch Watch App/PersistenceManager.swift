@@ -109,7 +109,10 @@ final class PersistenceManager: @unchecked Sendable {
         ioQueue.async { [weak self] in
             guard let self else { return }
             if let data = try? encoder.encode(conversation) {
-                try? data.write(to: url, options: .atomic)
+                // Pin the protection class explicitly instead of inheriting
+                // the OS default: conversation history should stay encrypted
+                // at rest whenever the watch is locked after first unlock.
+                try? data.write(to: url, options: [.atomic, .completeFileProtectionUnlessOpen])
             }
             if let snapshot { self.writeIndex(snapshot) }
         }
@@ -156,7 +159,7 @@ final class PersistenceManager: @unchecked Sendable {
         // Always called from ioQueue (or from a context where order doesn't matter).
         let list = Array(dict.values)
         if let data = try? encoder.encode(list) {
-            try? data.write(to: indexURL, options: .atomic)
+            try? data.write(to: indexURL, options: [.atomic, .completeFileProtectionUnlessOpen])
         }
     }
 

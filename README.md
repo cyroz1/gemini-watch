@@ -185,7 +185,7 @@ User input → ChatViewModel → GeminiService (streaming SSE)
 
 ## Privacy & Data Handling
 
-- **Conversations are stored locally** on the Apple Watch as JSON files in the app's sandboxed container.
+- **Conversations are stored locally** on the Apple Watch as JSON files in the app's sandboxed container, written with complete-unless-open file protection so they stay encrypted at rest while the watch is locked.
 - **Messages are transmitted only to the Google Gemini API** over HTTPS when you send a request.
 - **No analytics, telemetry, or third-party SDKs** are bundled.
 - **Your API key stays on the device** in `Secrets.plist`, embedded in the app bundle at build time.
