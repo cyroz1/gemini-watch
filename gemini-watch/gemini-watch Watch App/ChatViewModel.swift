@@ -165,7 +165,7 @@ class ChatViewModel: ObservableObject {
                     temperature: settings.temperature,
                     enableWebSearch: settings.webSearchEnabled
                 )
-                for try await event in stream {
+                streamLoop: for try await event in stream {
                     if Task.isCancelled { return }
 
                     switch event {
@@ -177,6 +177,13 @@ class ChatViewModel: ObservableObject {
 
                     case .text(let chunk):
                         fullResponse += chunk
+                        if fullResponse.count > GeminiService.maxResponseCharacters {
+                            // Defense in depth behind the service-side cap:
+                            // keep the truncated response and stop consuming
+                            // the stream, which cancels the request.
+                            fullResponse = String(fullResponse.prefix(GeminiService.maxResponseCharacters))
+                            break streamLoop
+                        }
                         let now = Date()
                         if !fullResponse.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty {
                             if messageIndex == nil || now.timeIntervalSince(lastUpdate) > 0.1 {

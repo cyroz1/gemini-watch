@@ -22,6 +22,18 @@ enum StreamEvent: Sendable {
 actor GeminiService {
     private let baseURL = "https://generativelanguage.googleapis.com/v1beta/models/"
 
+    /// Provider-side output cap sent with every request: bounds response
+    /// size, watch memory, and spend on the provisioned API key regardless
+    /// of the selected model's own default.
+    private static let maxOutputTokens = 8192
+
+    /// Client-side aggregate cap on streamed response text. The stream is
+    /// finished cleanly once this many characters have been yielded, so a
+    /// misbehaving endpoint cannot grow memory or the persisted
+    /// conversation without bound. Roughly 3x the realistic character
+    /// yield of `maxOutputTokens`, so legitimate responses are unaffected.
+    static let maxResponseCharacters = 100_000
+
     /// Nil when the key is absent — callers receive a descriptive error instead of a crash. (#1)
     private let apiKey: String?
 
@@ -98,7 +110,10 @@ actor GeminiService {
                     system_instruction: Content(role: "system", parts: [
                         Part(text: systemPrompt)
                     ]),
-                    generationConfig: GenerationConfig(temperature: temperature),
+                    generationConfig: GenerationConfig(
+                        temperature: temperature,
+                        maxOutputTokens: Self.maxOutputTokens
+                    ),
                     tools: enableWebSearch ? [Tool(google_search: GoogleSearchTool())] : nil
                 )
 
@@ -128,6 +143,7 @@ actor GeminiService {
 
                     // Accumulate grounding across chunks — newer chunks supersede earlier ones.
                     var latestSources: [GroundingSource] = []
+                    var yieldedTextCount = 0
 
                     for try await line in bytes.lines {
                         if Task.isCancelled {
@@ -142,13 +158,33 @@ actor GeminiService {
                             let decoded = try JSONDecoder().decode(GeminiResponse.self, from: data)
                             if let candidate = decoded.candidates?.first {
                                 if let text = candidate.content?.parts.first?.text {
+                                    let remaining = GeminiService.maxResponseCharacters - yieldedTextCount
+                                    if remaining <= 0 {
+                                        continuation.finish()
+                                        return
+                                    }
+                                    if text.count > remaining {
+                                        // Yield only up to the cap, then end
+                                        // the stream cleanly; the consumer
+                                        // keeps the truncated response and
+                                        // returning here stops the download.
+                                        continuation.yield(.text(String(text.prefix(remaining))))
+                                        continuation.finish()
+                                        return
+                                    }
+                                    yieldedTextCount += text.count
                                     continuation.yield(.text(text))
                                 }
                                 if let chunks = candidate.groundingMetadata?.groundingChunks {
                                     let sources = chunks.compactMap { chunk -> GroundingSource? in
                                         guard let web = chunk.web,
                                               let uri = web.uri,
-                                              !uri.isEmpty else { return nil }
+                                              !uri.isEmpty,
+                                              // Sources are only ever offered as
+                                              // links, so keep non-http(s) URIs
+                                              // out of storage entirely.
+                                              let scheme = URL(string: uri)?.scheme?.lowercased(),
+                                              scheme == "http" || scheme == "https" else { return nil }
                                         return GroundingSource(uri: uri, title: web.title ?? uri)
                                     }
                                     if !sources.isEmpty && sources != latestSources {
@@ -241,6 +277,7 @@ private struct GoogleSearchTool: Codable, Sendable {}
 
 private struct GenerationConfig: Codable, Sendable {
     let temperature: Double
+    let maxOutputTokens: Int
 }
 
 private struct GeminiResponse: Decodable, Sendable {
